@@ -242,6 +242,8 @@ Kaldırma işlemi (tekli veya çoklu) tamamlandığında otomatik devreye giren 
             prerelease = $false
         } | ConvertTo-Json -Depth 5
 
+        $jsonBytes = [System.Text.Encoding]::UTF8.GetBytes($releasePayload)
+
         # Release var mı kontrol et
         $releaseUrl = "https://api.github.com/repos/$repoOwner/$repoName/releases/tags/v$newVersion"
         $ghRelease = $null
@@ -252,11 +254,11 @@ Kaldırma işlemi (tekli veya çoklu) tamamlandığında otomatik devreye giren 
         if ($ghRelease) {
             Write-Host "Mevcut release güncelleniyor (ID: $($ghRelease.id))..." -ForegroundColor Yellow
             $patchUrl = "https://api.github.com/repos/$repoOwner/$repoName/releases/$($ghRelease.id)"
-            $ghRelease = Invoke-RestMethod -Uri $patchUrl -Headers $apiHeaders -Method Patch -Body $releasePayload
+            $ghRelease = Invoke-RestMethod -Uri $patchUrl -Headers $apiHeaders -Method Patch -Body $jsonBytes -ContentType "application/json; charset=utf-8"
         } else {
             Write-Host "Yeni release oluşturuluyor..." -ForegroundColor Green
             $postUrl = "https://api.github.com/repos/$repoOwner/$repoName/releases"
-            $ghRelease = Invoke-RestMethod -Uri $postUrl -Headers $apiHeaders -Method Post -Body $releasePayload
+            $ghRelease = Invoke-RestMethod -Uri $postUrl -Headers $apiHeaders -Method Post -Body $jsonBytes -ContentType "application/json; charset=utf-8"
         }
 
         # ZIP dosyasını release asset olarak yükle
@@ -278,10 +280,10 @@ Kaldırma işlemi (tekli veya çoklu) tamamlandığında otomatik devreye giren 
             $uploadHeaders = @{
                 "Authorization" = "Bearer $token"
                 "User-Agent" = "LDUninstaller-ReleaseScript"
-                "Content-Type" = "application/zip"
+                "Accept" = "application/vnd.github+json"
             }
             $zipBytes = [System.IO.File]::ReadAllBytes($zipPath)
-            $uploadResult = Invoke-RestMethod -Uri $uploadUri -Headers $uploadHeaders -Method Post -Body $zipBytes
+            $uploadResult = Invoke-RestMethod -Uri $uploadUri -Headers $uploadHeaders -Method Post -Body $zipBytes -ContentType "application/zip"
             Write-Host "Asset başarıyla yüklendi: $($uploadResult.browser_download_url)" -ForegroundColor Green
         }
 
