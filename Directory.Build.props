@@ -1,0 +1,10 @@
+﻿<Project>
+  <PropertyGroup>
+    <Version>2.3.1</Version>
+    <AssemblyVersion>2.3.1.0</AssemblyVersion>
+    <FileVersion>2.3.1.0</FileVersion>
+    <Product>LD Uninstaller</Product>
+    <Company>LD Software</Company>
+    <Authors>LD Software</Authors>
+  </PropertyGroup>
+</Project>

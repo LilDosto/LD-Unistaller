@@ -1,0 +1,55 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{AE9859BA-F5B7-476C-9ACF-870E6CB944B0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LDUninstaller.Core", "src\LDUninstaller.Core\LDUninstaller.Core.csproj", "{CD3DDC8C-4415-46B1-9E3D-C71152DE0902}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LDUninstaller.Automatizer", "src\LDUninstaller.Automatizer\LDUninstaller.Automatizer.csproj", "{7A617868-4F8D-4206-A0EF-D818F0963703}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LDUninstaller.CLI", "src\LDUninstaller.CLI\LDUninstaller.CLI.csproj", "{715A77F8-93E4-4D03-BAD1-6F749A803288}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LDUninstaller.UI", "src\LDUninstaller.UI\LDUninstaller.UI.csproj", "{894C87C4-22A2-4935-9238-ED19CB1AD23C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LDUninstaller.Launcher", "src\LDUninstaller.Launcher\LDUninstaller.Launcher.csproj", "{8B9A7CB4-F72E-42F3-ADC9-A253FBE447E3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CD3DDC8C-4415-46B1-9E3D-C71152DE0902}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CD3DDC8C-4415-46B1-9E3D-C71152DE0902}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CD3DDC8C-4415-46B1-9E3D-C71152DE0902}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CD3DDC8C-4415-46B1-9E3D-C71152DE0902}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7A617868-4F8D-4206-A0EF-D818F0963703}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7A617868-4F8D-4206-A0EF-D818F0963703}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7A617868-4F8D-4206-A0EF-D818F0963703}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7A617868-4F8D-4206-A0EF-D818F0963703}.Release|Any CPU.Build.0 = Release|Any CPU
+		{715A77F8-93E4-4D03-BAD1-6F749A803288}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{715A77F8-93E4-4D03-BAD1-6F749A803288}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{715A77F8-93E4-4D03-BAD1-6F749A803288}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{715A77F8-93E4-4D03-BAD1-6F749A803288}.Release|Any CPU.Build.0 = Release|Any CPU
+		{894C87C4-22A2-4935-9238-ED19CB1AD23C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{894C87C4-22A2-4935-9238-ED19CB1AD23C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{894C87C4-22A2-4935-9238-ED19CB1AD23C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{894C87C4-22A2-4935-9238-ED19CB1AD23C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8B9A7CB4-F72E-42F3-ADC9-A253FBE447E3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8B9A7CB4-F72E-42F3-ADC9-A253FBE447E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8B9A7CB4-F72E-42F3-ADC9-A253FBE447E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8B9A7CB4-F72E-42F3-ADC9-A253FBE447E3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{CD3DDC8C-4415-46B1-9E3D-C71152DE0902} = {AE9859BA-F5B7-476C-9ACF-870E6CB944B0}
+		{7A617868-4F8D-4206-A0EF-D818F0963703} = {AE9859BA-F5B7-476C-9ACF-870E6CB944B0}
+		{715A77F8-93E4-4D03-BAD1-6F749A803288} = {AE9859BA-F5B7-476C-9ACF-870E6CB944B0}
+		{894C87C4-22A2-4935-9238-ED19CB1AD23C} = {AE9859BA-F5B7-476C-9ACF-870E6CB944B0}
+		{8B9A7CB4-F72E-42F3-ADC9-A253FBE447E3} = {AE9859BA-F5B7-476C-9ACF-870E6CB944B0}
+	EndGlobalSection
+EndGlobal

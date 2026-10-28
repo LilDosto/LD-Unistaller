@@ -1,0 +1,21 @@
+## Visual Studio / .NET
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+.idea/
+
+## Logs and traces
+*.log
+trace.log
+crash_*.log
+test_*.json
+
+## Release packages & archives
+*.zip
+LD Uninstaller v*/
+dist/
+publish/
