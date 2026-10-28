@@ -1,28 +1,26 @@
-Bu sürümde, kaldırılan uygulamaların arkasında bıraktığı tüm dosya, kayıt defteri, servis ve görev kalıntılarını eksiksiz temizleyen 20 katmanlı derin tarama motoru ve çoklu sürücü analiz sistemi arayüze entegre edilmiştir.
+Bu sürümde, LD Uninstaller için özel tasarlanan modern logo/ikon paketi entegre edilmiş ve Başlangıç Yöneticisi'ndeki yetki ve açılış engelleme sorunları tamamen giderilmiştir.
 
 ---
 
 ### ✨ Neler Eklendi ve İyileştirildi?
 
-**1. 🧹 20 Katmanlı Derin Kalıntı ve Artık Temizleme Motoru**
-- Kaldırma işlemi (tekli veya çoklu) tamamlandığı anda otomatik devreye giren kalıntı temizleme arayüzü eklendi:
-  - **Servis & Görev Temizliği:** Arka planda unutulan Windows Servisleri (`sc delete`) ve Görev Zamanlayıcı (`Tasks`) updater görevleri otomatik taranıp temizlenir.
-  - **Kayıt Defteri & COM:** Shell sağ tık menüleri (`ContextMenuHandlers`), `App Paths`, `Run/RunOnce` ve yetim `CLSID` nesneleri temizlenir.
-  - **Kullanıcı Verileri:** `%AppData%`, `%LocalAppData%`, `%USERPROFILE%` altındaki gizli `.appname` / `.config` klasörleri ve boş kalan yayıncı dizinleri silinir.
-  - **Güvenli Yedek:** Silme işleminden önce kayıt defteri anahtarları otomatik olarak `.reg` yedeğine aktarılır.
+**1. 🎨 Yepyeni Modern Logo ve Uygulama Simgesi (App Icon)**
+- Uygulama için modern Windows 11 Fluent tasarımına uyumlu fütüristik 'LD' amblemi ve temizleme girdabı motifli yeni logo tasarlandı.
+- **Tüm Alanlara Entegre Edildi:**
+  - Arayüzün sol üst köşesindeki geçici mavi kutu kaldırılarak yüksek çözünürlüklü yeni logo yerleştirildi.
+  - Görev Yöneticisi (Task Manager), pencere başlıkları ve Windows Gezgini (klasör) üzerinde görünmesi için çoklu çözünürlüklü (`16x16`'dan `256x256`'ya) `.ico` dosyası yürütülebilir dosyalara gömüldü.
 
-**2. 💾 Çoklu Disk Analizi ve Üst Sekmeler**
-- Sistemdeki tüm takılı sürücüler (`C:`, `D:`, harici diskler vb.) otomatik analiz edilerek üst kısıma modern sekme butonları olarak eklendi:
-  - **Dinamik Disk Haritası:** Sürücü sekmeleri arasında geçiş yapıldığında hem uygulama tablosu hem de görsel Treemap haritası anında seçilen diske göre filtrelenir.
-  - **Oyun ve Kütüphane Tespiti:** İkincil disklerdeki `Games`, `Oyunlar` ve `SteamLibrary` dizinleri eksiksiz taranır.
+**2. ⚡ Başlangıç Yöneticisi ve Yetki Hatası Düzeltmesi**
+- Uygulama zaten Yönetici olarak açılmasına rağmen bazı uygulamaları kapatırken ortaya çıkan *"Yönetici yetkisi gerekebilir"* uyarısı ve kapatamama sorunu kökten çözüldü:
+  - **Başlangıç Klasörü Desteği:** `StartupFolder` altındaki kısayollar için hem `StartupApproved` ikili anahtarı hem de dosya devre dışı bırakma desteği eklendi.
+  - **HKLM & 32-bit (Run32) Uyumu:** 64-bit Windows sistemlerinde `WOW6432Node` ve `HKLM` anahtarlarına ait programların açılış durumları doğru kayıt defteri dallarına yazılarak sorunsuz hale getirildi.
+  - **Servis Yönetimi:** Windows Servisleri'nin başlangıç durumları (`Automatic`/`Disabled`) doğrudan `sc.exe config` ve sistem kayıt defteri üzerinden anında değiştirilebilir kılındı.
 
-**3. ⚡ Ultra Akıcı Arayüz ve Sıfır Takılma**
-- Arama çubuğuna yazarken UI kilitlenmesini önleyen 160ms gecikmeli filtreleme (debounced search) getirildi.
-- Donanım hızlandırmalı sanallaştırılmış liste kaydırması (`Pixel` scroll unit) ile yüksek kare hızında akıcılık sağlandı.
+**3. 🧹 20 Katmanlı Derin Kalıntı Temizleme Motoru**
+- Kaldırma işlemi bittiğinde arkada kalan tüm öksüz servisler, zamanlanmış görevler, kayıt defteri dalları ve gizli kullanıcı yapılandırma dosyaları eksiksiz taranır ve silinir.
 
-**4. 🗑️ Sadeleştirilmiş Tek Tuşla Kaldırma**
-- Arayüzdeki kafa karıştırıcı çoklu kaldırma butonları kaldırılarak tek ve akıllı bir **`🗑️ Kaldır`** butonu eklendi.
-- Tek uygulama seçildiğinde doğrudan kaldırma, birden fazla seçildiğinde çakışma önleyici akıllı kuyruk devreye girer.
+**4. 💾 Çoklu Sürücü Yönetimi ve Disk Haritası**
+- Bilgisayara takılı birden fazla disk (`C:`, `D:` vb.) varsa üst sekme çubuğu üzerinden kolayca geçiş yapılır ve görsel Treemap haritası seçilen diske göre dinamik güncellenir.
 
 ---
 

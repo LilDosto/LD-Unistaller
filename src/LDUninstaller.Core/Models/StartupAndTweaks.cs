@@ -18,6 +18,7 @@ namespace LDUninstaller.Core.Models
         public string Publisher { get; set; } = string.Empty;
         public StartupType Type { get; set; }
         public string Location { get; set; } = string.Empty;
+        public string ServiceName { get; set; } = string.Empty;
         public bool IsEnabled { get; set; } = true;
         public byte[]? StartupApprovedBinary { get; set; }
 

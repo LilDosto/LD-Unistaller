@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.ServiceProcess;
 using LDUninstaller.Core.Models;
@@ -14,34 +15,40 @@ namespace LDUninstaller.Core.Startup
             var list = new List<StartupEntry>();
 
             // 1. Registry HKCU Run
-            ScanRegistryRun(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Run", StartupType.RegistryRun, list);
+            ScanRegistryRun(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Run", StartupType.RegistryRun, list, isHklm: false, isWow64: false);
+
             // 2. Registry HKLM Run
-            ScanRegistryRun(Registry.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", StartupType.RegistryRun, list);
+            ScanRegistryRun(Registry.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", StartupType.RegistryRun, list, isHklm: true, isWow64: false);
+
             // 3. Registry HKLM 32-bit (Wow6432Node)
             if (Environment.Is64BitOperatingSystem)
             {
-                using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32);
-                using var key = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run");
-                if (key != null)
+                try
                 {
-                    foreach (var name in key.GetValueNames())
+                    using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32);
+                    using var key = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run");
+                    if (key != null)
                     {
-                        var val = key.GetValue(name)?.ToString() ?? string.Empty;
-                        list.Add(new StartupEntry
+                        foreach (var name in key.GetValueNames())
                         {
-                            Name = name,
-                            Command = val,
-                            Type = StartupType.RegistryRun,
-                            Location = @"HKLM\Software\Wow6432Node\...\Run",
-                            IsEnabled = CheckStartupApproved(name)
-                        });
+                            var val = key.GetValue(name)?.ToString() ?? string.Empty;
+                            list.Add(new StartupEntry
+                            {
+                                Name = name,
+                                Command = val,
+                                Type = StartupType.RegistryRun,
+                                Location = @"HKLM\Software\Wow6432Node\...\Run",
+                                IsEnabled = CheckStartupApproved(name, isHklm: true, isWow64: true)
+                            });
+                        }
                     }
                 }
+                catch { }
             }
 
             // 4. Startup Folders
-            ScanFolder(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "User Startup Folder", list);
-            ScanFolder(Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup), "All Users Startup Folder", list);
+            ScanFolder(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "Kullanıcı Başlangıç Klasörü", list, isCommon: false);
+            ScanFolder(Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup), "Tüm Kullanıcılar Başlangıç Klasörü", list, isCommon: true);
 
             // 5. Services (3rd party automatic)
             ScanServices(list);
@@ -49,7 +56,7 @@ namespace LDUninstaller.Core.Startup
             return list;
         }
 
-        private static void ScanRegistryRun(RegistryKey root, string subKey, StartupType type, List<StartupEntry> list)
+        private static void ScanRegistryRun(RegistryKey root, string subKey, StartupType type, List<StartupEntry> list, bool isHklm, bool isWow64)
         {
             try
             {
@@ -65,28 +72,40 @@ namespace LDUninstaller.Core.Startup
                         Command = cmd,
                         Type = type,
                         Location = $"{root.Name}\\{subKey}",
-                        IsEnabled = CheckStartupApproved(name)
+                        IsEnabled = CheckStartupApproved(name, isHklm, isWow64)
                     });
                 }
             }
             catch { }
         }
 
-        private static void ScanFolder(string path, string locationDesc, List<StartupEntry> list)
+        private static void ScanFolder(string path, string locationDesc, List<StartupEntry> list, bool isCommon)
         {
             if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path)) return;
             try
             {
                 foreach (var file in Directory.GetFiles(path))
                 {
-                    string name = Path.GetFileNameWithoutExtension(file);
+                    string ext = Path.GetExtension(file).ToLowerInvariant();
+                    if (ext != ".lnk" && ext != ".url" && ext != ".disabled") continue;
+
+                    string fileName = Path.GetFileName(file);
+                    string displayName = Path.GetFileNameWithoutExtension(file);
+                    bool isEnabled = !ext.Equals(".disabled", StringComparison.OrdinalIgnoreCase);
+
+                    // Check StartupApproved for startup folder
+                    if (isEnabled)
+                    {
+                        isEnabled = CheckStartupFolderApproved(fileName, isCommon);
+                    }
+
                     list.Add(new StartupEntry
                     {
-                        Name = name,
+                        Name = displayName,
                         Command = file,
                         Type = StartupType.StartupFolder,
                         Location = locationDesc,
-                        IsEnabled = true
+                        IsEnabled = isEnabled
                     });
                 }
             }
@@ -106,19 +125,25 @@ namespace LDUninstaller.Core.Startup
                         if (key != null)
                         {
                             int startType = (int)(key.GetValue("Start") ?? 3);
-                            // 2 = Automatic
-                            if (startType == 2)
+                            string imgPath = key.GetValue("ImagePath")?.ToString() ?? "";
+                            string imgLower = imgPath.ToLowerInvariant();
+
+                            // 2 = Automatic, 3 = Manual, 4 = Disabled
+                            // Exclude internal OS services
+                            if (!imgLower.Contains(@"\windows\system32\svchost.exe") &&
+                                !imgLower.Contains(@"\windows\system32\services.exe") &&
+                                !imgLower.Contains(@"\windows\system32\lsass.exe"))
                             {
-                                string imgPath = key.GetValue("ImagePath")?.ToString() ?? "";
-                                if (!imgPath.ToLowerInvariant().Contains(@"windows\system32"))
+                                if (startType == 2 || startType == 4)
                                 {
                                     list.Add(new StartupEntry
                                     {
                                         Name = sc.DisplayName,
+                                        ServiceName = sc.ServiceName,
                                         Command = imgPath,
                                         Type = StartupType.Service,
-                                        Location = "Windows Service",
-                                        IsEnabled = sc.Status == ServiceControllerStatus.Running
+                                        Location = "Windows Servisi",
+                                        IsEnabled = (startType == 2)
                                     });
                                 }
                             }
@@ -130,15 +155,57 @@ namespace LDUninstaller.Core.Startup
             catch { }
         }
 
-        public static bool CheckStartupApproved(string entryName)
+        public static bool CheckStartupApproved(string entryName, bool isHklm = false, bool isWow64 = false)
         {
             try
             {
-                using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run");
-                if (key?.GetValue(entryName) is byte[] data && data.Length > 0)
+                string approvedSub = isWow64 ? @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32"
+                                             : @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+
+                // First check HKCU
+                using (var key = Registry.CurrentUser.OpenSubKey(approvedSub))
                 {
-                    // 0x02 is enabled, 0x03 or other is disabled
-                    return data[0] == 0x02;
+                    if (key?.GetValue(entryName) is byte[] data && data.Length > 0)
+                    {
+                        return data[0] == 0x02;
+                    }
+                }
+
+                // If HKLM, also check HKLM StartupApproved
+                if (isHklm)
+                {
+                    using var hklmKey = Registry.LocalMachine.OpenSubKey(approvedSub);
+                    if (hklmKey?.GetValue(entryName) is byte[] data && data.Length > 0)
+                    {
+                        return data[0] == 0x02;
+                    }
+                }
+            }
+            catch { }
+            return true;
+        }
+
+        public static bool CheckStartupFolderApproved(string fileName, bool isCommon)
+        {
+            try
+            {
+                const string approvedSub = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder";
+
+                using (var key = Registry.CurrentUser.OpenSubKey(approvedSub))
+                {
+                    if (key?.GetValue(fileName) is byte[] data && data.Length > 0)
+                    {
+                        return data[0] == 0x02;
+                    }
+                }
+
+                if (isCommon)
+                {
+                    using var hklmKey = Registry.LocalMachine.OpenSubKey(approvedSub);
+                    if (hklmKey?.GetValue(fileName) is byte[] data && data.Length > 0)
+                    {
+                        return data[0] == 0x02;
+                    }
                 }
             }
             catch { }
@@ -149,36 +216,136 @@ namespace LDUninstaller.Core.Startup
         {
             try
             {
+                byte[] binaryData = enable
+                    ? new byte[] { 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }
+                    : new byte[] { 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
                 if (entry.Type == StartupType.RegistryRun)
                 {
-                    using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run");
-                    if (key != null)
+                    bool isWow64 = entry.Location.Contains("Wow6432Node", StringComparison.OrdinalIgnoreCase);
+                    bool isHklm = entry.Location.Contains("HKEY_LOCAL_MACHINE", StringComparison.OrdinalIgnoreCase) || entry.Location.Contains("HKLM", StringComparison.OrdinalIgnoreCase);
+
+                    string approvedSub = isWow64 ? @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32"
+                                                 : @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+
+                    // Always write to HKCU
+                    using (var key = Registry.CurrentUser.CreateSubKey(approvedSub))
                     {
-                        byte[] data = enable
-                            ? new byte[] { 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }
-                            : new byte[] { 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-                        key.SetValue(entry.Name, data, RegistryValueKind.Binary);
-                        entry.IsEnabled = enable;
-                        return true;
+                        key?.SetValue(entry.Name, binaryData, RegistryValueKind.Binary);
                     }
+
+                    // If it was in HKLM, also write to HKLM
+                    if (isHklm)
+                    {
+                        try
+                        {
+                            using var key = Registry.LocalMachine.CreateSubKey(approvedSub);
+                            key?.SetValue(entry.Name, binaryData, RegistryValueKind.Binary);
+                        }
+                        catch { }
+                    }
+
+                    entry.IsEnabled = enable;
+                    return true;
+                }
+                else if (entry.Type == StartupType.StartupFolder)
+                {
+                    string fileName = Path.GetFileName(entry.Command);
+                    bool isCommon = entry.Location.Contains("Tüm Kullanıcılar", StringComparison.OrdinalIgnoreCase) || entry.Location.Contains("All Users", StringComparison.OrdinalIgnoreCase);
+
+                    const string approvedFolderSub = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder";
+
+                    // Write to StartupApproved\StartupFolder in HKCU
+                    using (var key = Registry.CurrentUser.CreateSubKey(approvedFolderSub))
+                    {
+                        key?.SetValue(fileName, binaryData, RegistryValueKind.Binary);
+                    }
+
+                    if (isCommon)
+                    {
+                        try
+                        {
+                            using var key = Registry.LocalMachine.CreateSubKey(approvedFolderSub);
+                            key?.SetValue(fileName, binaryData, RegistryValueKind.Binary);
+                        }
+                        catch { }
+                    }
+
+                    // Fallback rename if StartupApproved is not respected
+                    try
+                    {
+                        if (!enable && File.Exists(entry.Command) && !entry.Command.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string newPath = entry.Command + ".disabled";
+                            File.Move(entry.Command, newPath);
+                            entry.Command = newPath;
+                        }
+                        else if (enable && File.Exists(entry.Command) && entry.Command.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string newPath = entry.Command.Substring(0, entry.Command.Length - ".disabled".Length);
+                            File.Move(entry.Command, newPath);
+                            entry.Command = newPath;
+                        }
+                    }
+                    catch { }
+
+                    entry.IsEnabled = enable;
+                    return true;
                 }
                 else if (entry.Type == StartupType.Service)
                 {
-                    using var sc = new ServiceController(entry.Name);
-                    if (enable && sc.Status != ServiceControllerStatus.Running)
+                    string svcName = !string.IsNullOrEmpty(entry.ServiceName) ? entry.ServiceName : entry.Name;
+                    int targetStartType = enable ? 2 : 4; // 2 = Auto, 4 = Disabled
+
+                    // 1. Update Registry Start type directly
+                    try
                     {
-                        sc.Start();
-                        entry.IsEnabled = true;
+                        using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{svcName}", true);
+                        if (key != null)
+                        {
+                            key.SetValue("Start", targetStartType, RegistryValueKind.DWord);
+                        }
                     }
-                    else if (!enable && sc.Status == ServiceControllerStatus.Running)
+                    catch { }
+
+                    // 2. Run sc.exe config start= auto / disabled
+                    try
                     {
-                        sc.Stop();
-                        entry.IsEnabled = false;
+                        string mode = enable ? "auto" : "disabled";
+                        var psi = new ProcessStartInfo("sc.exe", $"config \"{svcName}\" start= {mode}")
+                        {
+                            CreateNoWindow = true,
+                            UseShellExecute = false
+                        };
+                        using var p = Process.Start(psi);
+                        p?.WaitForExit(3000);
                     }
+                    catch { }
+
+                    // 3. Stop or Start the service
+                    try
+                    {
+                        using var sc = new ServiceController(svcName);
+                        if (!enable && sc.Status == ServiceControllerStatus.Running)
+                        {
+                            sc.Stop();
+                            sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(3));
+                        }
+                        else if (enable && sc.Status == ServiceControllerStatus.Stopped)
+                        {
+                            sc.Start();
+                        }
+                    }
+                    catch { }
+
+                    entry.IsEnabled = enable;
                     return true;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ToggleStartupEntry error: {ex.Message}");
+            }
             return false;
         }
     }

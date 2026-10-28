@@ -9,6 +9,7 @@
         Background="{StaticResource BrushBgDark}"
         Foreground="{StaticResource BrushTextPrimary}"
         FontFamily="Segoe UI"
+        Icon="pack://application:,,,/Resources/app.ico"
         BorderBrush="{StaticResource BrushBorder}"
         BorderThickness="1">
 
@@ -33,8 +34,8 @@
 
                 <!-- App Brand / Logo -->
                 <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0">
-                    <Border Background="#2563EB" CornerRadius="8" Width="36" Height="36" Margin="0,0,12,0">
-                        <TextBlock Text="LD" FontSize="16" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <Border CornerRadius="8" Width="36" Height="36" Margin="0,0,12,0" ClipToBounds="True">
+                        <Image Source="pack://application:,,,/Resources/logo.png" Width="36" Height="36" RenderOptions.BitmapScalingMode="HighQuality" />
                     </Border>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="LD Uninstaller" FontSize="15" FontWeight="Bold" Foreground="White" />

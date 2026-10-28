@@ -34,7 +34,7 @@ switch ($Type.ToLowerInvariant()) {
         $patch += 1
     }
     "current" {
-        # Keep existing version for initial packaging
+        # Keep existing version
     }
 }
 
@@ -62,13 +62,13 @@ $propsContent = @"
 Set-Content -Path $propsFile -Value $propsContent -Encoding UTF8
 
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  LD UNINSTALLER SÃœRÃœM YAYINLAMA: v$newVersion" -ForegroundColor Yellow
+Write-Host "  LD UNINSTALLER SURUM YAYINLAMA: v$newVersion" -ForegroundColor Yellow
 Write-Host "==========================================" -ForegroundColor Cyan
 
-# 1. Ana klasÃ¶rde eski sÃ¼rÃ¼mleri temizle (Sadece tek ve son sÃ¼rÃ¼m kalacak ÅŸekilde)
+# 1. Ana klasorde eski surumleri temizle
 $oldFolders = Get-ChildItem -Path $root -Directory -Filter "LD Uninstaller v*"
 foreach ($old in $oldFolders) {
-    Write-Host "Eski sÃ¼rÃ¼m klasÃ¶rÃ¼ temizleniyor: $($old.Name)..." -ForegroundColor Gray
+    Write-Host "Eski surum klasoru temizleniyor: $($old.Name)..." -ForegroundColor Gray
     try {
         Remove-Item -Path $old.FullName -Recurse -Force -ErrorAction SilentlyContinue
     } catch { }
@@ -77,11 +77,11 @@ foreach ($old in $oldFolders) {
 $targetFolderName = "LD Uninstaller v$newVersion"
 $targetDir = Join-Path $root $targetFolderName
 
-Write-Host "Yeni sÃ¼rÃ¼m klasÃ¶rÃ¼ oluÅŸturuluyor: $targetFolderName..." -ForegroundColor Green
+Write-Host "Yeni surum klasoru olusturuluyor: $targetFolderName..." -ForegroundColor Green
 New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
 
-# 2. Projeleri Release modunda derle ve tek klasÃ¶re aktar
-Write-Host "Projeler derleniyor ve yayÄ±nlanÄ±yor..." -ForegroundColor Cyan
+# 2. Projeleri Release modunda derle ve yayinla
+Write-Host "Projeler derleniyor ve yayinlaniyor..." -ForegroundColor Cyan
 
 $projects = @(
     "src/LDUninstaller.UI/LDUninstaller.UI.csproj",
@@ -92,18 +92,18 @@ $projects = @(
 
 foreach ($proj in $projects) {
     $projPath = Join-Path $root $proj
-    Write-Host " -> YayÄ±nlanÄ±yor: $proj" -ForegroundColor Gray
+    Write-Host " -> Yayinlaniyor: $proj" -ForegroundColor Gray
     dotnet publish $projPath -c Release -o $targetDir --nologo -v q
 }
 
-# 3. Gereksiz pdb ve log dosyalarÄ±nÄ± temizle
+# 3. Gereksiz pdb ve log dosyalarini temizle
 Get-ChildItem -Path $targetDir -Filter "*.pdb" | Remove-Item -Force -ErrorAction SilentlyContinue
 
-# 4. Eski publish ve dist klasÃ¶rlerini de temizle
+# 4. Eski publish ve dist klasorlerini de temizle
 try { Remove-Item -Path (Join-Path $root "publish") -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 try { Remove-Item -Path (Join-Path $root "dist") -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 
-# 5. SÃ¼rÃ¼m ZIP ArÅŸivini OluÅŸtur (GitHub Releases iÃ§in)
+# 5. Surum ZIP Arsivini Olustur
 $oldZips = Get-ChildItem -Path $root -File -Filter "LD-Uninstaller-v*.zip"
 foreach ($oz in $oldZips) {
     try { Remove-Item -Path $oz.FullName -Force -ErrorAction SilentlyContinue } catch { }
@@ -111,15 +111,15 @@ foreach ($oz in $oldZips) {
 
 $zipName = "LD-Uninstaller-v$newVersion.zip"
 $zipPath = Join-Path $root $zipName
-Write-Host "SÃ¼rÃ¼m arÅŸivi oluÅŸturuluyor: $zipName..." -ForegroundColor Cyan
+Write-Host "Surum arsivi olusturuluyor: $zipName..." -ForegroundColor Cyan
 Compress-Archive -Path "$targetDir\*" -DestinationPath $zipPath -Force
 
-# 6. Git DeÄŸiÅŸiklikleri, Etiket (Tag) ve GitHub Senkronizasyonu
+# 6. Git Islemleri ve GitHub Push
 if (Test-Path (Join-Path $root ".git")) {
-    Write-Host "`nGit deÄŸiÅŸiklikleri iÅŸleniyor ve GitHub'a aktarÄ±lÄ±yor..." -ForegroundColor Cyan
+    Write-Host "`nGit degisiklikleri isleniyor ve GitHub'a aktariliyor..." -ForegroundColor Cyan
     try {
         if ([string]::IsNullOrWhiteSpace($Message)) {
-            $Message = "Release v${newVersion}: 20 Katmanli Derin Kalinti Temizleme Motoru ve Arayuz SadeleÅŸtirmesi"
+            $Message = "Release v${newVersion}: Yeni Logo ve Baslangic Yoneticisi Guncellemesi"
         }
         git add .
         git commit -m $Message
@@ -127,24 +127,24 @@ if (Test-Path (Join-Path $root ".git")) {
         
         $remote = git remote get-url origin 2>$null
         if ($remote) {
-            Write-Host "GitHub'a gÃ¶nderiliyor (origin master --tags)..." -ForegroundColor Yellow
+            Write-Host "GitHub'a gonderiliyor (origin master --tags)..." -ForegroundColor Yellow
             git push origin master --tags -u -f
         }
     } catch {
-        Write-Host "Git iÅŸlemi uyarÄ±sÄ±: $_" -ForegroundColor Yellow
+        Write-Host "Git islemi uyarisi: $_" -ForegroundColor Yellow
     }
 }
 
-# 7. GitHub Releases API Ãœzerinde SÃ¼rÃ¼m ve DeÄŸiÅŸiklik NotlarÄ±nÄ± YayÄ±nla
+# 7. GitHub Releases API Uzerinde Surum ve Notlari Yayinla
 try {
-    Write-Host "`nGitHub Releases API Ã¼zerinden sÃ¼rÃ¼m ve notlar yayÄ±nlanÄ±yor..." -ForegroundColor Cyan
+    Write-Host "`nGitHub Releases API uzerinden surum ve notlar yayinlaniyor..." -ForegroundColor Cyan
 
     $code = @"
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-public class GitCredsPublisher
+public class GitCredsEngine
 {
     [DllImport("Advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     public static extern bool CredRead(string target, int type, int reservedFlag, out IntPtr credentialPtr);
@@ -180,16 +180,16 @@ public class GitCredsPublisher
     }
 }
 "@
-    if (-not ([System.Management.Automation.PSTypeName]'GitCredsPublisher').Type) {
+    if (-not ([System.Management.Automation.PSTypeName]'GitCredsEngine').Type) {
         Add-Type -TypeDefinition $code -Language CSharp
     }
     
-    $token = [GitCredsPublisher]::GetToken()
+    $token = [GitCredsEngine]::GetToken()
     if ($env:GITHUB_TOKEN) { $token = $env:GITHUB_TOKEN }
     if ($env:GH_TOKEN) { $token = $env:GH_TOKEN }
 
     if (-not $token) {
-        Write-Host "UyarÄ±: GitHub kimlik belirteci (token) bulunamadÄ±. Release API atlanÄ±yor." -ForegroundColor Yellow
+        Write-Host "Uyari: GitHub kimlik belirteci bulunamadi. Release API atlaniyor." -ForegroundColor Yellow
     } else {
         $apiHeaders = @{
             "Authorization" = "Bearer $token"
@@ -200,17 +200,17 @@ public class GitCredsPublisher
         $repoOwner = "LilDosto"
         $repoName = "LD-Unistaller"
 
-        # Changelog / Sürüm Notları (Şablon dosyasından temiz UTF-8 olarak yüklenir)
+        # Changelog / Surum Notlari (Sablon dosyasindan UTF-8 olarak okunur)
         $templatePath = Join-Path $root "release_notes_template.md"
         $releaseNotes = ""
         if (Test-Path $templatePath) {
             $releaseNotes = [System.IO.File]::ReadAllText($templatePath, [System.Text.Encoding]::UTF8)
             $releaseNotes = $releaseNotes.Replace("{VERSION}", $newVersion)
         } else {
-            $releaseNotes = "LD Uninstaller v$newVersion güncellemesi."
+            $releaseNotes = "LD Uninstaller v$newVersion guncellemesi."
         }
 
-        $releaseTitle = "🧹 LDUninstaller-v$newVersion — Derin Kalıntı Temizleme ve Çoklu Disk Güncellemesi"
+        $releaseTitle = if (![string]::IsNullOrWhiteSpace($Message)) { $Message } else { "LDUninstaller-v$newVersion - Guncelleme" }
 
         $releasePayload = @{
             tag_name = "v$newVersion"
@@ -222,7 +222,6 @@ public class GitCredsPublisher
 
         $jsonBytes = [System.Text.Encoding]::UTF8.GetBytes($releasePayload)
 
-        # Release var mÄ± kontrol et
         $releaseUrl = "https://api.github.com/repos/$repoOwner/$repoName/releases/tags/v$newVersion"
         $ghRelease = $null
         try {
@@ -230,20 +229,19 @@ public class GitCredsPublisher
         } catch { }
 
         if ($ghRelease) {
-            Write-Host "Mevcut release gÃ¼ncelleniyor (ID: $($ghRelease.id))..." -ForegroundColor Yellow
+            Write-Host "Mevcut release guncelleniyor (ID: $($ghRelease.id))..." -ForegroundColor Yellow
             $patchUrl = "https://api.github.com/repos/$repoOwner/$repoName/releases/$($ghRelease.id)"
             $ghRelease = Invoke-RestMethod -Uri $patchUrl -Headers $apiHeaders -Method Patch -Body $jsonBytes -ContentType "application/json; charset=utf-8"
         } else {
-            Write-Host "Yeni release oluÅŸturuluyor..." -ForegroundColor Green
+            Write-Host "Yeni release olusturuluyor..." -ForegroundColor Green
             $postUrl = "https://api.github.com/repos/$repoOwner/$repoName/releases"
             $ghRelease = Invoke-RestMethod -Uri $postUrl -Headers $apiHeaders -Method Post -Body $jsonBytes -ContentType "application/json; charset=utf-8"
         }
 
-        # ZIP dosyasÄ±nÄ± release asset olarak yÃ¼kle
+        # ZIP dosyasini release asset olarak yukle
         if ($ghRelease -and (Test-Path $zipPath)) {
-            Write-Host "SÃ¼rÃ¼m paketi ($zipName) release sayfasÄ±na yÃ¼kleniyor..." -ForegroundColor Cyan
+            Write-Host "Surum paketi ($zipName) release sayfasina yukleniyor..." -ForegroundColor Cyan
 
-            # Eski asset varsa sil
             if ($ghRelease.assets) {
                 foreach ($asset in $ghRelease.assets) {
                     if ($asset.name -eq $zipName) {
@@ -262,23 +260,23 @@ public class GitCredsPublisher
             }
             $zipBytes = [System.IO.File]::ReadAllBytes($zipPath)
             $uploadResult = Invoke-RestMethod -Uri $uploadUri -Headers $uploadHeaders -Method Post -Body $zipBytes -ContentType "application/zip"
-            Write-Host "Asset baÅŸarÄ±yla yÃ¼klendi: $($uploadResult.browser_download_url)" -ForegroundColor Green
+            Write-Host "Asset basariyla yuklendi: $($uploadResult.browser_download_url)" -ForegroundColor Green
         }
 
-        Write-Host "`nGitHub Release yayÄ±nda:" -ForegroundColor Yellow
+        Write-Host "`nGitHub Release yayinda:" -ForegroundColor Yellow
         Write-Host " -> https://github.com/$repoOwner/$repoName/releases/tag/v$newVersion" -ForegroundColor White
     }
 } catch {
-    Write-Host "GitHub Releases API iÅŸlemi uyarÄ±sÄ±: $_" -ForegroundColor Yellow
+    Write-Host "GitHub Releases API islemi uyarisi: $_" -ForegroundColor Yellow
 }
 
-Write-Host "`nâœ… BaÅŸarÄ±yla TamamlandÄ±!" -ForegroundColor Green
-Write-Host "Ana dizinde oluÅŸturulan son gÃ¼ncel sÃ¼rÃ¼m klasÃ¶rÃ¼:" -ForegroundColor Yellow
+Write-Host "`n[+] Basariyla Tamamlandi!" -ForegroundColor Green
+Write-Host "Ana dizinde olusturulan son guncel surum klasoru:" -ForegroundColor Yellow
 Write-Host " -> $targetFolderName" -ForegroundColor White
-Write-Host "GitHub Release iÃ§in hazÄ±r paket:" -ForegroundColor White
+Write-Host "GitHub Release hazir paketi:" -ForegroundColor White
 Write-Host " -> $zipName" -ForegroundColor Cyan
-Write-Host "KullanÄ±ma hazÄ±r yÃ¼rÃ¼tÃ¼lebilir dosyalar:" -ForegroundColor Gray
-Write-Host "    - LDUninstaller.Launcher.exe (YÃ¶netici yetkili baÅŸlatÄ±cÄ±)"
-Write-Host "    - LDUninstaller.UI.exe (Modern Fluent ArayÃ¼z)"
-Write-Host "    - LDUninstaller.CLI.exe (Konsol aracÄ±)"
-Write-Host "    - LDUninstaller.Automatizer.exe (Otomasyon ajanÄ±)`n"
+Write-Host "Kullanima hazir yurutulebilir dosyalar:" -ForegroundColor Gray
+Write-Host "    - LDUninstaller.Launcher.exe (Yonetici yetkili baslatici)"
+Write-Host "    - LDUninstaller.UI.exe (Modern Fluent Arayuz)"
+Write-Host "    - LDUninstaller.CLI.exe (Konsol araci)"
+Write-Host "    - LDUninstaller.Automatizer.exe (Otomasyon ajani)`n"
