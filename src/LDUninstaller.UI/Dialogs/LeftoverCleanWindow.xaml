@@ -71,7 +71,7 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Tür" Binding="{Binding Type}" Width="110" />
+                <DataGridTextColumn Header="Tür" Binding="{Binding TypeDisplay}" Width="145" />
                 <DataGridTemplateColumn Header="Güven Seviyesi" Width="130">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>

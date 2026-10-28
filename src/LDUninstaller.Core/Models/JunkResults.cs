@@ -11,6 +11,7 @@ namespace LDUninstaller.Core.Models
         Directory,
         File,
         Service,
+        ScheduledTask,
         FirewallRule,
         UserAssist,
         Shortcut
@@ -21,6 +22,19 @@ namespace LDUninstaller.Core.Models
         string EntryName { get; }
         string Path { get; }
         JunkType Type { get; }
+        string TypeDisplay => Type switch
+        {
+            JunkType.Directory => "📁 Klasör",
+            JunkType.File => "📄 Dosya",
+            JunkType.RegistryKey => "🔑 Kayıt Anahtarı",
+            JunkType.RegistryValue => "🏷️ Kayıt Değeri",
+            JunkType.Service => "⚙️ Windows Servisi",
+            JunkType.ScheduledTask => "⏱️ Görev Zamanlayıcı",
+            JunkType.FirewallRule => "🛡️ Güvenlik Duvarı",
+            JunkType.UserAssist => "📊 UserAssist",
+            JunkType.Shortcut => "🔗 Kısayol",
+            _ => Type.ToString()
+        };
         ConfidenceLevel Confidence { get; }
         string Reason { get; }
         bool Selected { get; set; }

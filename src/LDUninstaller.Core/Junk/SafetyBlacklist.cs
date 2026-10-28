@@ -8,6 +8,14 @@ namespace LDUninstaller.Core.Junk
     {
         private static readonly HashSet<string> BlacklistedDirs = new(StringComparer.OrdinalIgnoreCase);
         private static readonly HashSet<string> BlacklistedRegPaths = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly HashSet<string> ProtectedNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "windows", "system32", "syswow64", "winsxs", "microsoft", "windows nt",
+            "windows defender", "windows security", "internet explorer", "microsoft.net",
+            "windowspowershell", "dotnet", "common files", "desktop", "downloads",
+            "documents", "pictures", "music", "videos", "appdata", "locallow", "roaming", "local",
+            "temp", "system volume information", "$recycle.bin", "recovery", "boot", "perflogs"
+        };
 
         static SafetyBlacklist()
         {
@@ -28,15 +36,33 @@ namespace LDUninstaller.Core.Junk
                 AddDir(drive.RootDirectory.FullName);
             }
 
-            // Registry Blacklists
+            // Registry Core Containers & Blacklists
             BlacklistedRegPaths.Add(@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion");
             BlacklistedRegPaths.Add(@"HKLM\SYSTEM\CurrentControlSet");
+            BlacklistedRegPaths.Add(@"HKLM\SYSTEM\CurrentControlSet\Services");
             BlacklistedRegPaths.Add(@"HKLM\SYSTEM");
             BlacklistedRegPaths.Add(@"HKLM\SOFTWARE\Microsoft");
             BlacklistedRegPaths.Add(@"HKLM\SOFTWARE\Classes");
             BlacklistedRegPaths.Add(@"HKCU\SOFTWARE\Microsoft");
             BlacklistedRegPaths.Add(@"HKCU\SOFTWARE\Microsoft\Windows");
             BlacklistedRegPaths.Add(@"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion");
+            BlacklistedRegPaths.Add(@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run");
+            BlacklistedRegPaths.Add(@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce");
+            BlacklistedRegPaths.Add(@"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run");
+            BlacklistedRegPaths.Add(@"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce");
+            BlacklistedRegPaths.Add(@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths");
+            BlacklistedRegPaths.Add(@"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths");
+            BlacklistedRegPaths.Add(@"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache");
+            BlacklistedRegPaths.Add(@"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree");
+            BlacklistedRegPaths.Add(@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions");
+            BlacklistedRegPaths.Add(@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved");
+            BlacklistedRegPaths.Add(@"HKLM\SOFTWARE\RegisteredApplications");
+            BlacklistedRegPaths.Add(@"HKCU\SOFTWARE\RegisteredApplications");
+            BlacklistedRegPaths.Add(@"HKCR\*\shellex\ContextMenuHandlers");
+            BlacklistedRegPaths.Add(@"HKCR\Directory\shellex\ContextMenuHandlers");
+            BlacklistedRegPaths.Add(@"HKCR\CLSID");
+            BlacklistedRegPaths.Add(@"HKLM\SOFTWARE\Classes\CLSID");
+            BlacklistedRegPaths.Add(@"HKCU\SOFTWARE\Classes\CLSID");
         }
 
         private static void AddDir(string? path)
@@ -60,9 +86,13 @@ namespace LDUninstaller.Core.Junk
                 if (BlacklistedDirs.Contains(norm))
                     return true;
 
+                string name = Path.GetFileName(norm);
+                if (ProtectedNames.Contains(name))
+                    return true;
+
                 // Parent must not be directly root or users root without specific subfolder
                 var di = new DirectoryInfo(norm);
-                if (di.Parent == null) return true; // C:\
+                if (di.Parent == null) return true; // e.g. C:\
                 if (di.Parent.FullName.Equals(@"C:\Users", StringComparison.OrdinalIgnoreCase)) return true;
 
                 return false;

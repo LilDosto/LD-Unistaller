@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -15,6 +16,14 @@ namespace LDUninstaller.Core.Junk
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "LDUninstaller", "Backups");
 
+        private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "the", "and", "for", "with", "app", "application", "software", "corporation", "corp",
+            "inc", "ltd", "gmbh", "edition", "desktop", "client", "runtime", "support",
+            "installer", "setup", "unins", "uninstall", "windows", "microsoft", "x86", "x64",
+            "32bit", "64bit", "package", "driver", "update", "updater", "service"
+        };
+
         public List<IJunkResult> ScanJunk(ApplicationUninstallerEntry entry)
         {
             var results = new List<IJunkResult>();
@@ -22,28 +31,61 @@ namespace LDUninstaller.Core.Junk
             // 1. Install Location leftover scanner
             ScanInstallLocation(entry, results);
 
-            // 2. Common drive junk scanner (AppData, LocalAppData, ProgramData, Documents, Saved Games)
+            // 2. Common drive junk scanner (AppData, LocalAppData, LocalLow, ProgramData, Documents, Saved Games)
             ScanCommonDriveJunk(entry, results);
 
-            // 3. Software Registry Keys (HKLM & HKCU)
+            // 3. User root dot-folders & config folders (.appname, .config, .cache)
+            ScanUserProfileDotFolders(entry, results);
+
+            // 4. Common Files and Temporary setup caches
+            ScanCommonFilesAndTemp(entry, results);
+
+            // 5. Multi-drive analysis & Empty parent publisher folder scanner
+            ScanAllDrivesForAppAndEmptyParent(entry, results);
+
+            // 6. Software Registry Keys (HKLM, HKCU & WOW6432Node)
             ScanSoftwareRegistryKeys(entry, results);
 
-            // 4. Windows Prefetch scanner
-            ScanPrefetch(entry, results);
+            // 7. Windows Services & Kernel/System Drivers
+            ScanServicesAndDrivers(entry, results);
 
-            // 5. Windows Error Reporting / CrashDumps
-            ScanWerDumps(entry, results);
+            // 8. Windows Scheduled Tasks (Görev Zamanlayıcı)
+            ScanScheduledTasks(entry, results);
 
-            // 6. Firewall Rules
+            // 9. Application Launch Paths (App Paths)
+            ScanAppPaths(entry, results);
+
+            // 10. Startup Registry Keys (Run & RunOnce)
+            ScanStartupRunKeys(entry, results);
+
+            // 11. COM Objects, CLSIDs & Context Menu Shell Extensions
+            ScanShellExtensionsAndCom(entry, results);
+
+            // 12. Windows Shell MuiCache
+            ScanMuiCache(entry, results);
+
+            // 13. Application Compatibility & AppCompatFlags
+            ScanAppCompatFlags(entry, results);
+
+            // 14. Windows Firewall Rules
             ScanFirewallRules(entry, results);
 
-            // 7. UserAssist ROT13 scanner
+            // 15. Windows Prefetch scanner
+            ScanPrefetch(entry, results);
+
+            // 16. Windows Error Reporting / CrashDumps
+            ScanWerDumps(entry, results);
+
+            // 17. UserAssist ROT13 execution history scanner
             ScanUserAssist(entry, results);
 
-            // 8. Shortcuts (Desktop, Start Menu, Quick Launch)
-            ScanShortcuts(entry, results);
+            // 18. Shortcuts & Recent items (Desktop, Start Menu, Startup, Recent)
+            ScanShortcutsAndRecent(entry, results);
 
-            // 9. Registry Uninstaller Entry Check (if uninstall key still exists)
+            // 19. Windows Installer (MSI) Orphaned Products
+            ScanMsiOrphanedProducts(entry, results);
+
+            // 20. Registry Uninstaller Entry Check (if uninstall key still exists)
             ScanRegistryUninstallKey(entry, results);
 
             // Apply Safety Blacklist filter and adjust Confidence
@@ -80,9 +122,13 @@ namespace LDUninstaller.Core.Junk
                 var list = ScanJunk(entry);
                 foreach (var j in list)
                 {
-                    if (!seenPaths.Contains(j.Path))
+                    string uniqueKey = $"{j.Type}:{j.Path}";
+                    if (j is RegistryJunkResult r && !string.IsNullOrEmpty(r.ValueName))
+                        uniqueKey += $":{r.ValueName}";
+
+                    if (!seenPaths.Contains(uniqueKey))
                     {
-                        seenPaths.Add(j.Path);
+                        seenPaths.Add(uniqueKey);
                         all.Add(j);
                     }
                 }
@@ -93,26 +139,46 @@ namespace LDUninstaller.Core.Junk
 
         private static (string cleanName, string cleanPublisher, List<string> tokens) GetMatchTokens(ApplicationUninstallerEntry entry)
         {
-            string rawName = entry.DisplayName;
+            string rawName = entry.DisplayName ?? string.Empty;
             string stripped = Regex.Replace(rawName, @"(\bv?\d+(\.\d+)+|\(x86\)|\(x64\)|\(amd64\)|sürümü|version)", " ", RegexOptions.IgnoreCase);
-            string cleanName = Sift4.NormalizeName(stripped).ToLowerInvariant();
-            string cleanPub = Sift4.NormalizeName(entry.Publisher).ToLowerInvariant();
+            string cleanName = Sift4.NormalizeName(stripped).ToLowerInvariant().Trim();
+            string cleanPub = Sift4.NormalizeName(entry.Publisher ?? string.Empty).ToLowerInvariant().Trim();
 
             var tokens = new List<string>();
-            if (cleanName.Length >= 2) tokens.Add(cleanName);
-            if (cleanPub.Length >= 3) tokens.Add(cleanPub);
+
+            if (cleanName.Length >= 2 && !StopWords.Contains(cleanName))
+                tokens.Add(cleanName);
+
+            if (cleanPub.Length >= 3 && !StopWords.Contains(cleanPub))
+                tokens.Add(cleanPub);
 
             foreach (var word in cleanName.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             {
-                if (word.Length >= 3 && !tokens.Contains(word))
-                    tokens.Add(word);
+                string w = word.Trim().ToLowerInvariant();
+                if (w.Length >= 3 && !StopWords.Contains(w) && !tokens.Contains(w))
+                    tokens.Add(w);
             }
 
             if (!string.IsNullOrWhiteSpace(entry.UninstallerFullFilename))
             {
-                string exeName = Path.GetFileNameWithoutExtension(entry.UninstallerFullFilename).ToLowerInvariant();
-                if (exeName.Length >= 3 && !exeName.Contains("unins") && !exeName.Contains("setup") && !tokens.Contains(exeName))
-                    tokens.Add(exeName);
+                try
+                {
+                    string exeName = Path.GetFileNameWithoutExtension(entry.UninstallerFullFilename).ToLowerInvariant();
+                    if (exeName.Length >= 3 && !exeName.Contains("unins") && !exeName.Contains("setup") && !StopWords.Contains(exeName) && !tokens.Contains(exeName))
+                        tokens.Add(exeName);
+                }
+                catch { }
+            }
+
+            if (!string.IsNullOrWhiteSpace(entry.InstallLocation))
+            {
+                try
+                {
+                    string folderName = Path.GetFileName(entry.InstallLocation.TrimEnd('\\')).ToLowerInvariant();
+                    if (folderName.Length >= 3 && !StopWords.Contains(folderName) && !tokens.Contains(folderName))
+                        tokens.Add(folderName);
+                }
+                catch { }
             }
 
             return (cleanName, cleanPub, tokens);
@@ -128,7 +194,7 @@ namespace LDUninstaller.Core.Junk
 
             results.Add(new FileSystemJunkResult
             {
-                EntryName = Path.GetFileName(entry.InstallLocation),
+                EntryName = Path.GetFileName(entry.InstallLocation.TrimEnd('\\')),
                 Path = entry.InstallLocation,
                 IsDirectory = true,
                 Confidence = ConfidenceLevel.VeryGood,
@@ -220,6 +286,231 @@ namespace LDUninstaller.Core.Junk
             }
         }
 
+        private void ScanUserProfileDotFolders(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        {
+            var (_, _, tokens) = GetMatchTokens(entry);
+            if (tokens.Count == 0) return;
+
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!Directory.Exists(userProfile)) return;
+
+            try
+            {
+                // %USERPROFILE%\.{token}
+                foreach (var dir in Directory.GetDirectories(userProfile, ".*"))
+                {
+                    string dirName = Path.GetFileName(dir);
+                    if (SafetyBlacklist.IsDangerousDirectory(dir)) continue;
+
+                    string stripped = dirName.TrimStart('.').ToLowerInvariant();
+                    if (tokens.Any(t => stripped.Equals(t, StringComparison.OrdinalIgnoreCase) || stripped.StartsWith(t, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        results.Add(new FileSystemJunkResult
+                        {
+                            EntryName = dirName,
+                            Path = dir,
+                            IsDirectory = true,
+                            Confidence = ConfidenceLevel.VeryGood,
+                            Reason = "Kullanıcı profil dizinindeki gizli yapılandırma klasörü (Dot-folder)",
+                            Selected = true
+                        });
+                    }
+                }
+
+                // %USERPROFILE%\.config and %USERPROFILE%\.cache
+                string[] modernConfigs = { Path.Combine(userProfile, ".config"), Path.Combine(userProfile, ".cache"), Path.Combine(userProfile, ".local", "share") };
+                foreach (var parent in modernConfigs)
+                {
+                    if (!Directory.Exists(parent)) continue;
+                    foreach (var dir in Directory.GetDirectories(parent))
+                    {
+                        string dirName = Path.GetFileName(dir).ToLowerInvariant();
+                        if (SafetyBlacklist.IsDangerousDirectory(dir)) continue;
+
+                        if (tokens.Any(t => dirName.Contains(t) || Sift4.GetSimilarity(dirName, t) >= 0.80))
+                        {
+                            results.Add(new FileSystemJunkResult
+                            {
+                                EntryName = Path.GetFileName(dir),
+                                Path = dir,
+                                IsDirectory = true,
+                                Confidence = ConfidenceLevel.VeryGood,
+                                Reason = "Kullanıcı modern yapılandırma/önbellek klasörü (.config/.cache)",
+                                Selected = true
+                            });
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void ScanCommonFilesAndTemp(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        {
+            var (cleanName, cleanPub, tokens) = GetMatchTokens(entry);
+            if (tokens.Count == 0) return;
+
+            // Common Files
+            var commonDirs = new[]
+            {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Common Files"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Common Files")
+            };
+
+            foreach (var common in commonDirs)
+            {
+                if (!Directory.Exists(common)) continue;
+                try
+                {
+                    foreach (var dir in Directory.GetDirectories(common))
+                    {
+                        string dirName = Path.GetFileName(dir).ToLowerInvariant();
+                        if (SafetyBlacklist.IsDangerousDirectory(dir)) continue;
+
+                        if (!string.IsNullOrEmpty(cleanPub) && dirName.Equals(cleanPub, StringComparison.OrdinalIgnoreCase))
+                        {
+                            foreach (var sub in Directory.GetDirectories(dir))
+                            {
+                                string subName = Path.GetFileName(sub).ToLowerInvariant();
+                                if (tokens.Any(t => subName.Contains(t) || Sift4.GetSimilarity(subName, t) >= 0.75))
+                                {
+                                    results.Add(new FileSystemJunkResult
+                                    {
+                                        EntryName = $"Common Files\\{dirName}\\{subName}",
+                                        Path = sub,
+                                        IsDirectory = true,
+                                        Confidence = ConfidenceLevel.VeryGood,
+                                        Reason = "Ortak program bileşenleri ve kütüphane kalıntısı (Common Files)",
+                                        Selected = true
+                                    });
+                                }
+                            }
+                        }
+                        else if (tokens.Any(t => dirName.Contains(t) || Sift4.GetSimilarity(dirName, t) >= 0.80))
+                        {
+                            results.Add(new FileSystemJunkResult
+                            {
+                                EntryName = $"Common Files\\{dirName}",
+                                Path = dir,
+                                IsDirectory = true,
+                                Confidence = ConfidenceLevel.Good,
+                                Reason = "Ortak program bileşenleri klasörü (Common Files)",
+                                Selected = true
+                            });
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // Temp Setup / Uninstaller Caches
+            try
+            {
+                string tempDir = Path.GetTempPath();
+                if (Directory.Exists(tempDir))
+                {
+                    foreach (var dir in Directory.GetDirectories(tempDir))
+                    {
+                        string dirName = Path.GetFileName(dir).ToLowerInvariant();
+                        if (SafetyBlacklist.IsDangerousDirectory(dir)) continue;
+
+                        if (tokens.Any(t => dirName.Contains(t)))
+                        {
+                            results.Add(new FileSystemJunkResult
+                            {
+                                EntryName = dirName,
+                                Path = dir,
+                                IsDirectory = true,
+                                Confidence = ConfidenceLevel.VeryGood,
+                                Reason = "Geçici kurulum veya uninstaller önbellek klasörü (Temp)",
+                                Selected = true
+                            });
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void ScanAllDrivesForAppAndEmptyParent(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        {
+            var (_, _, tokens) = GetMatchTokens(entry);
+
+            // Empty publisher folder cleanup
+            if (!string.IsNullOrWhiteSpace(entry.InstallLocation))
+            {
+                try
+                {
+                    var parent = Directory.GetParent(entry.InstallLocation.TrimEnd('\\'));
+                    if (parent != null && parent.Exists && !SafetyBlacklist.IsDangerousDirectory(parent.FullName))
+                    {
+                        var entries = parent.GetFileSystemInfos();
+                        // Check if parent only contains the install location being removed or is completely empty
+                        bool isEmptyOrOnlyTarget = entries.Length == 0 ||
+                            (entries.Length == 1 && entries[0].FullName.Equals(Path.GetFullPath(entry.InstallLocation).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase));
+
+                        if (isEmptyOrOnlyTarget)
+                        {
+                            results.Add(new FileSystemJunkResult
+                            {
+                                EntryName = parent.Name,
+                                Path = parent.FullName,
+                                IsDirectory = true,
+                                Confidence = ConfidenceLevel.VeryGood,
+                                Reason = "Uygulama kaldırıldıktan sonra boş kalan ana yayıncı klasörü",
+                                Selected = true
+                            });
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // Secondary Ready Drives (e.g. D:\, E:\)
+            if (tokens.Count > 0)
+            {
+                try
+                {
+                    string systemRoot = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows)) ?? "C:\\";
+
+                    foreach (var drive in DriveInfo.GetDrives())
+                    {
+                        if (!drive.IsReady || drive.DriveType != DriveType.Fixed) continue;
+                        if (drive.RootDirectory.FullName.Equals(systemRoot, StringComparison.OrdinalIgnoreCase)) continue;
+
+                        string root = drive.RootDirectory.FullName;
+                        string[] candidateFolders = { "Games", "Oyunlar", "Program Files", "Programs", "SteamLibrary\\steamapps\\common" };
+
+                        foreach (var cand in candidateFolders)
+                        {
+                            string target = Path.Combine(root, cand);
+                            if (!Directory.Exists(target)) continue;
+
+                            foreach (var sub in Directory.GetDirectories(target))
+                            {
+                                string subName = Path.GetFileName(sub).ToLowerInvariant();
+                                if (SafetyBlacklist.IsDangerousDirectory(sub)) continue;
+
+                                if (tokens.Any(t => subName.Equals(t, StringComparison.OrdinalIgnoreCase) || Sift4.GetSimilarity(subName, t) >= 0.85))
+                                {
+                                    results.Add(new FileSystemJunkResult
+                                    {
+                                        EntryName = $"{cand}\\{Path.GetFileName(sub)}",
+                                        Path = sub,
+                                        IsDirectory = true,
+                                        Confidence = ConfidenceLevel.VeryGood,
+                                        Reason = $"İkincil disk ({drive.Name.TrimEnd('\\')}) üzerindeki oyun veya uygulama kalıntısı",
+                                        Selected = true
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
         private void ScanSoftwareRegistryKeys(ApplicationUninstallerEntry entry, List<IJunkResult> results)
         {
             var (cleanName, cleanPub, tokens) = GetMatchTokens(entry);
@@ -298,29 +589,187 @@ namespace LDUninstaller.Core.Junk
             }
         }
 
-        private void ScanPrefetch(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        private void ScanServicesAndDrivers(ApplicationUninstallerEntry entry, List<IJunkResult> results)
         {
+            var (_, _, tokens) = GetMatchTokens(entry);
+            string installNorm = string.IsNullOrWhiteSpace(entry.InstallLocation) ? "" : Path.GetFullPath(entry.InstallLocation).TrimEnd('\\').ToLowerInvariant();
+
             try
             {
-                string prefetchDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Prefetch");
-                if (!Directory.Exists(prefetchDir)) return;
+                using var servicesKey = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services");
+                if (servicesKey == null) return;
 
-                var (cleanName, _, tokens) = GetMatchTokens(entry);
-
-                foreach (var token in tokens.Take(2))
+                foreach (var svcName in servicesKey.GetSubKeyNames())
                 {
-                    if (token.Length < 3) continue;
-                    var pfFiles = Directory.GetFiles(prefetchDir, $"{token.ToUpperInvariant()}*.pf");
-                    foreach (var pf in pfFiles)
+                    try
                     {
-                        results.Add(new FileSystemJunkResult
+                        using var svc = servicesKey.OpenSubKey(svcName);
+                        if (svc == null) continue;
+
+                        string? imagePath = svc.GetValue("ImagePath")?.ToString();
+                        string? displayName = svc.GetValue("DisplayName")?.ToString();
+                        string svcLower = svcName.ToLowerInvariant();
+
+                        bool match = false;
+                        string matchReason = "";
+
+                        if (!string.IsNullOrEmpty(imagePath))
                         {
-                            EntryName = Path.GetFileName(pf),
-                            Path = pf,
-                            IsDirectory = false,
+                            string cleanImagePath = imagePath.Replace("\"", "").Trim().ToLowerInvariant();
+                            if (cleanImagePath.StartsWith(@"\??\"))
+                                cleanImagePath = cleanImagePath.Substring(4);
+
+                            // Ignore OS core binaries
+                            if (!cleanImagePath.Contains(@"\windows\system32\svchost.exe") &&
+                                !cleanImagePath.Contains(@"\windows\system32\services.exe") &&
+                                !cleanImagePath.Contains(@"\windows\system32\lsass.exe"))
+                            {
+                                if (!string.IsNullOrEmpty(installNorm) && cleanImagePath.Contains(installNorm))
+                                {
+                                    match = true;
+                                    matchReason = "Hizmet yolu kaldırılan uygulamanın kurulum klasörünü işaret ediyor";
+                                }
+                                else if (tokens.Any(t => cleanImagePath.Contains(t) && !cleanImagePath.Contains("windows")))
+                                {
+                                    match = true;
+                                    matchReason = "Hizmet yolu kaldırılan uygulamanın dosyasını işaret ediyor";
+                                }
+                            }
+                        }
+
+                        if (!match && tokens.Count > 0)
+                        {
+                            if (tokens.Any(t => svcLower.Equals(t, StringComparison.OrdinalIgnoreCase)) ||
+                                (!string.IsNullOrEmpty(displayName) && tokens.Any(t => displayName.ToLowerInvariant().Contains(t))))
+                            {
+                                match = true;
+                                matchReason = "Hizmet adı veya açıklaması kaldırılan yazılımla eşleşiyor";
+                            }
+                        }
+
+                        if (match)
+                        {
+                            results.Add(new GenericJunkResult
+                            {
+                                EntryName = svcName,
+                                Path = svcName,
+                                Type = JunkType.Service,
+                                Confidence = ConfidenceLevel.VeryGood,
+                                Reason = $"Uygulamaya ait arkaplan Windows Hizmeti ({displayName ?? svcName}) - {matchReason}",
+                                Selected = true,
+                                CustomAction = () =>
+                                {
+                                    try
+                                    {
+                                        var stopInfo = new ProcessStartInfo("sc.exe", $"stop \"{svcName}\"") { CreateNoWindow = true, UseShellExecute = false };
+                                        using var pStop = Process.Start(stopInfo);
+                                        pStop?.WaitForExit(3000);
+
+                                        var delInfo = new ProcessStartInfo("sc.exe", $"delete \"{svcName}\"") { CreateNoWindow = true, UseShellExecute = false };
+                                        using var pDel = Process.Start(delInfo);
+                                        pDel?.WaitForExit(3000);
+
+                                        using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Default);
+                                        baseKey.DeleteSubKeyTree($@"SYSTEM\CurrentControlSet\Services\{svcName}", false);
+                                        return true;
+                                    }
+                                    catch
+                                    {
+                                        return false;
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+
+        private void ScanScheduledTasks(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        {
+            var (_, cleanPub, tokens) = GetMatchTokens(entry);
+            string installNorm = string.IsNullOrWhiteSpace(entry.InstallLocation) ? "" : Path.GetFullPath(entry.InstallLocation).TrimEnd('\\').ToLowerInvariant();
+
+            string tasksDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "Tasks");
+            if (!Directory.Exists(tasksDir)) return;
+
+            try
+            {
+                foreach (var taskFile in Directory.GetFiles(tasksDir, "*", SearchOption.AllDirectories))
+                {
+                    // Never touch Microsoft OS internal tasks
+                    if (taskFile.Contains(@"\Tasks\Microsoft\Windows", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string relativeTaskPath = taskFile.Substring(tasksDir.Length).Replace('/', '\\');
+                    if (!relativeTaskPath.StartsWith("\\"))
+                        relativeTaskPath = "\\" + relativeTaskPath;
+
+                    string fileName = Path.GetFileName(taskFile).ToLowerInvariant();
+                    bool match = false;
+                    string matchReason = "";
+
+                    // 1. Check path/filename tokens
+                    if (tokens.Any(t => fileName.Contains(t)) || (!string.IsNullOrEmpty(cleanPub) && relativeTaskPath.ToLowerInvariant().Contains(cleanPub)))
+                    {
+                        match = true;
+                        matchReason = "Görev adı veya klasörü kaldırılan yazılımla eşleşiyor";
+                    }
+
+                    // 2. Read task XML command
+                    if (!match)
+                    {
+                        try
+                        {
+                            string content = File.ReadAllText(taskFile).ToLowerInvariant();
+                            if (!string.IsNullOrEmpty(installNorm) && content.Contains(installNorm))
+                            {
+                                match = true;
+                                matchReason = "Görev eylemi kaldırılan uygulamanın kurulum klasöründeki dosyayı çalıştırıyor";
+                            }
+                            else if (tokens.Any(t => content.Contains($"\\{t}.exe") || content.Contains($"\\{t}updater.exe")))
+                            {
+                                match = true;
+                                matchReason = "Görev komut satırı uygulamanın çalıştırılabilir dosyasını hedefliyor";
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (match)
+                    {
+                        results.Add(new GenericJunkResult
+                        {
+                            EntryName = Path.GetFileName(taskFile),
+                            Path = relativeTaskPath,
+                            Type = JunkType.ScheduledTask,
                             Confidence = ConfidenceLevel.VeryGood,
-                            Reason = "Windows Prefetch çalıştırma önbellek dosyası",
-                            Selected = true
+                            Reason = $"Windows Görev Zamanlayıcı (Scheduled Task) kalıntısı - {matchReason}",
+                            Selected = true,
+                            CustomAction = () =>
+                            {
+                                try
+                                {
+                                    var psi = new ProcessStartInfo("schtasks.exe", $"/Delete /TN \"{relativeTaskPath}\" /F")
+                                    {
+                                        CreateNoWindow = true,
+                                        UseShellExecute = false
+                                    };
+                                    using var p = Process.Start(psi);
+                                    p?.WaitForExit(3000);
+
+                                    if (File.Exists(taskFile))
+                                        File.Delete(taskFile);
+
+                                    return true;
+                                }
+                                catch
+                                {
+                                    return false;
+                                }
+                            }
                         });
                     }
                 }
@@ -328,33 +777,305 @@ namespace LDUninstaller.Core.Junk
             catch { }
         }
 
-        private void ScanWerDumps(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        private void ScanAppPaths(ApplicationUninstallerEntry entry, List<IJunkResult> results)
         {
+            var (_, _, tokens) = GetMatchTokens(entry);
+            string installNorm = string.IsNullOrWhiteSpace(entry.InstallLocation) ? "" : Path.GetFullPath(entry.InstallLocation).TrimEnd('\\').ToLowerInvariant();
+
+            var roots = new[]
+            {
+                (Hive: "HKLM", Key: Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths")),
+                (Hive: "HKCU", Key: Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\App Paths")),
+                (Hive: "HKLM_32", Key: Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths"))
+            };
+
+            foreach (var (hive, root) in roots)
+            {
+                if (root == null) continue;
+                using (root)
+                {
+                    foreach (var sub in root.GetSubKeyNames())
+                    {
+                        try
+                        {
+                            using var appKey = root.OpenSubKey(sub);
+                            if (appKey == null) continue;
+
+                            string? defaultVal = appKey.GetValue(null)?.ToString();
+                            string subLower = sub.ToLowerInvariant();
+
+                            bool match = false;
+                            if (!string.IsNullOrEmpty(defaultVal) && !string.IsNullOrEmpty(installNorm) && defaultVal.ToLowerInvariant().Contains(installNorm))
+                            {
+                                match = true;
+                            }
+                            else if (tokens.Any(t => subLower.Contains(t)))
+                            {
+                                match = true;
+                            }
+
+                            if (match)
+                            {
+                                string basePath = hive.StartsWith("HKCU") ? "HKCU" : "HKLM";
+                                string path = hive == "HKLM_32" 
+                                    ? $@"HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\{sub}"
+                                    : $@"{basePath}\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{sub}";
+
+                                results.Add(new RegistryJunkResult
+                                {
+                                    EntryName = sub,
+                                    Path = path,
+                                    Confidence = ConfidenceLevel.VeryGood,
+                                    Reason = "Windows Uygulama Başlatma Yolu (App Path) kalıntısı",
+                                    Selected = true
+                                });
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+        }
+
+        private void ScanStartupRunKeys(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        {
+            var (_, _, tokens) = GetMatchTokens(entry);
+            string installNorm = string.IsNullOrWhiteSpace(entry.InstallLocation) ? "" : Path.GetFullPath(entry.InstallLocation).TrimEnd('\\').ToLowerInvariant();
+
+            var locations = new[]
+            {
+                (Hive: "HKLM", Path: @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
+                (Hive: "HKLM", Path: @"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"),
+                (Hive: "HKCU", Path: @"Software\Microsoft\Windows\CurrentVersion\Run"),
+                (Hive: "HKCU", Path: @"Software\Microsoft\Windows\CurrentVersion\RunOnce"),
+                (Hive: "HKLM", Path: @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run")
+            };
+
+            foreach (var loc in locations)
+            {
+                try
+                {
+                    var baseKey = loc.Hive == "HKCU" ? Registry.CurrentUser : Registry.LocalMachine;
+                    using var key = baseKey.OpenSubKey(loc.Path);
+                    if (key == null) continue;
+
+                    foreach (var valName in key.GetValueNames())
+                    {
+                        string? valData = key.GetValue(valName)?.ToString();
+                        if (string.IsNullOrEmpty(valData)) continue;
+
+                        string valLower = valData.ToLowerInvariant();
+                        bool match = false;
+
+                        if (!string.IsNullOrEmpty(installNorm) && valLower.Contains(installNorm))
+                            match = true;
+                        else if (tokens.Any(t => valName.ToLowerInvariant().Contains(t) || valLower.Contains($"\\{t}.exe")))
+                            match = true;
+
+                        if (match)
+                        {
+                            results.Add(new RegistryJunkResult
+                            {
+                                EntryName = valName,
+                                Path = $@"{loc.Hive}\{loc.Path}",
+                                ValueName = valName,
+                                Confidence = ConfidenceLevel.VeryGood,
+                                Reason = "Başlangıçta otomatik çalıştırma kayıt defteri girdisi (Run/RunOnce)",
+                                Selected = true
+                            });
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
+        private void ScanShellExtensionsAndCom(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        {
+            var (_, _, tokens) = GetMatchTokens(entry);
+            string installNorm = string.IsNullOrWhiteSpace(entry.InstallLocation) ? "" : Path.GetFullPath(entry.InstallLocation).TrimEnd('\\').ToLowerInvariant();
+
+            // 1. ContextMenuHandlers
+            string[] contextMenuKeys =
+            {
+                @"*\shellex\ContextMenuHandlers",
+                @"Directory\shellex\ContextMenuHandlers",
+                @"Directory\Background\shellex\ContextMenuHandlers",
+                @"Drive\shellex\ContextMenuHandlers",
+                @"Folder\shellex\ContextMenuHandlers"
+            };
+
+            foreach (var cmKey in contextMenuKeys)
+            {
+                try
+                {
+                    using var root = Registry.ClassesRoot.OpenSubKey(cmKey);
+                    if (root == null) continue;
+
+                    foreach (var sub in root.GetSubKeyNames())
+                    {
+                        string subLower = sub.ToLowerInvariant();
+                        if (tokens.Any(t => subLower.Contains(t)))
+                        {
+                            results.Add(new RegistryJunkResult
+                            {
+                                EntryName = sub,
+                                Path = $@"HKCR\{cmKey}\{sub}",
+                                Confidence = ConfidenceLevel.VeryGood,
+                                Reason = "Windows Gezgini sağ tık içerik menüsü eklentisi (Shell Extension)",
+                                Selected = true
+                            });
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // 2. Approved Shell Extensions
             try
             {
-                string crashDumps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CrashDumps");
-                if (!Directory.Exists(crashDumps)) return;
-
-                var (_, _, tokens) = GetMatchTokens(entry);
-
-                foreach (var file in Directory.GetFiles(crashDumps, "*.dmp"))
+                using var approved = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved");
+                if (approved != null)
                 {
-                    string fname = Path.GetFileName(file).ToLowerInvariant();
-                    if (tokens.Any(t => fname.Contains(t)))
+                    foreach (var valName in approved.GetValueNames())
                     {
-                        results.Add(new FileSystemJunkResult
+                        string? desc = approved.GetValue(valName)?.ToString();
+                        if (!string.IsNullOrEmpty(desc) && tokens.Any(t => desc.ToLowerInvariant().Contains(t)))
                         {
-                            EntryName = Path.GetFileName(file),
-                            Path = file,
-                            IsDirectory = false,
-                            Confidence = ConfidenceLevel.Good,
-                            Reason = "Windows Hata Raporlama çökme döküm dosyası (Crash Dump)",
-                            Selected = true
-                        });
+                            results.Add(new RegistryJunkResult
+                            {
+                                EntryName = desc,
+                                Path = @"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved",
+                                ValueName = valName,
+                                Confidence = ConfidenceLevel.VeryGood,
+                                Reason = "Onaylanmış kabuk uzantısı listesi girdisi (Shell Extension Approved)",
+                                Selected = true
+                            });
+                        }
                     }
                 }
             }
             catch { }
+
+            // 3. Orphaned CLSIDs pointing into InstallLocation
+            if (!string.IsNullOrEmpty(installNorm))
+            {
+                try
+                {
+                    using var clsidKey = Registry.ClassesRoot.OpenSubKey("CLSID");
+                    if (clsidKey != null)
+                    {
+                        foreach (var clsid in clsidKey.GetSubKeyNames())
+                        {
+                            try
+                            {
+                                using var sub = clsidKey.OpenSubKey(clsid);
+                                if (sub == null) continue;
+
+                                foreach (var serverKey in new[] { "InprocServer32", "LocalServer32" })
+                                {
+                                    using var sKey = sub.OpenSubKey(serverKey);
+                                    if (sKey == null) continue;
+
+                                    string? serverPath = sKey.GetValue(null)?.ToString();
+                                    if (!string.IsNullOrEmpty(serverPath) && serverPath.ToLowerInvariant().Contains(installNorm))
+                                    {
+                                        results.Add(new RegistryJunkResult
+                                        {
+                                            EntryName = clsid,
+                                            Path = $@"HKCR\CLSID\{clsid}",
+                                            Confidence = ConfidenceLevel.VeryGood,
+                                            Reason = "Kaldırılan uygulamanın DLL/EXE dosyasına bağlı artık COM Nesnesi (CLSID)",
+                                            Selected = true
+                                        });
+                                        break;
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
+        private void ScanMuiCache(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        {
+            string installNorm = string.IsNullOrWhiteSpace(entry.InstallLocation) ? "" : Path.GetFullPath(entry.InstallLocation).TrimEnd('\\').ToLowerInvariant();
+            if (string.IsNullOrEmpty(installNorm)) return;
+
+            string[] muiPaths =
+            {
+                @"Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache",
+                @"Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
+            };
+
+            foreach (var mui in muiPaths)
+            {
+                try
+                {
+                    using var key = Registry.CurrentUser.OpenSubKey(mui);
+                    if (key == null) continue;
+
+                    foreach (var val in key.GetValueNames())
+                    {
+                        if (val.ToLowerInvariant().Contains(installNorm))
+                        {
+                            results.Add(new RegistryJunkResult
+                            {
+                                EntryName = Path.GetFileName(val),
+                                Path = $@"HKCU\{mui}",
+                                ValueName = val,
+                                Confidence = ConfidenceLevel.VeryGood,
+                                Reason = "Windows Shell MuiCache uygulama ve simge önbellek kaydı",
+                                Selected = true
+                            });
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+
+        private void ScanAppCompatFlags(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        {
+            string installNorm = string.IsNullOrWhiteSpace(entry.InstallLocation) ? "" : Path.GetFullPath(entry.InstallLocation).TrimEnd('\\').ToLowerInvariant();
+            if (string.IsNullOrEmpty(installNorm)) return;
+
+            var paths = new[]
+            {
+                (Hive: "HKCU", Path: @"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"),
+                (Hive: "HKLM", Path: @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"),
+                (Hive: "HKCU", Path: @"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Store")
+            };
+
+            foreach (var p in paths)
+            {
+                try
+                {
+                    var baseKey = p.Hive == "HKCU" ? Registry.CurrentUser : Registry.LocalMachine;
+                    using var key = baseKey.OpenSubKey(p.Path);
+                    if (key == null) continue;
+
+                    foreach (var val in key.GetValueNames())
+                    {
+                        if (val.ToLowerInvariant().Contains(installNorm))
+                        {
+                            results.Add(new RegistryJunkResult
+                            {
+                                EntryName = Path.GetFileName(val),
+                                Path = $@"{p.Hive}\{p.Path}",
+                                ValueName = val,
+                                Confidence = ConfidenceLevel.VeryGood,
+                                Reason = "Windows Uyumluluk ve AppCompat geçmiş girdisi",
+                                Selected = true
+                            });
+                        }
+                    }
+                }
+                catch { }
+            }
         }
 
         private void ScanFirewallRules(ApplicationUninstallerEntry entry, List<IJunkResult> results)
@@ -387,6 +1108,89 @@ namespace LDUninstaller.Core.Junk
             catch { }
         }
 
+        private void ScanPrefetch(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        {
+            try
+            {
+                string prefetchDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Prefetch");
+                if (!Directory.Exists(prefetchDir)) return;
+
+                var (_, _, tokens) = GetMatchTokens(entry);
+
+                foreach (var token in tokens.Take(3))
+                {
+                    if (token.Length < 3) continue;
+                    var pfFiles = Directory.GetFiles(prefetchDir, $"{token.ToUpperInvariant()}*.pf");
+                    foreach (var pf in pfFiles)
+                    {
+                        results.Add(new FileSystemJunkResult
+                        {
+                            EntryName = Path.GetFileName(pf),
+                            Path = pf,
+                            IsDirectory = false,
+                            Confidence = ConfidenceLevel.VeryGood,
+                            Reason = "Windows Prefetch çalıştırma hızlandırma önbellek dosyası",
+                            Selected = true
+                        });
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void ScanWerDumps(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        {
+            var (_, _, tokens) = GetMatchTokens(entry);
+            if (tokens.Count == 0) return;
+
+            try
+            {
+                string crashDumps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CrashDumps");
+                if (Directory.Exists(crashDumps))
+                {
+                    foreach (var file in Directory.GetFiles(crashDumps, "*.dmp"))
+                    {
+                        string fname = Path.GetFileName(file).ToLowerInvariant();
+                        if (tokens.Any(t => fname.Contains(t)))
+                        {
+                            results.Add(new FileSystemJunkResult
+                            {
+                                EntryName = Path.GetFileName(file),
+                                Path = file,
+                                IsDirectory = false,
+                                Confidence = ConfidenceLevel.Good,
+                                Reason = "Windows Hata Raporlama çökme döküm dosyası (Crash Dump)",
+                                Selected = true
+                            });
+                        }
+                    }
+                }
+
+                // WER ReportArchive
+                string werArchive = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows", "WER", "ReportArchive");
+                if (Directory.Exists(werArchive))
+                {
+                    foreach (var dir in Directory.GetDirectories(werArchive))
+                    {
+                        string dname = Path.GetFileName(dir).ToLowerInvariant();
+                        if (tokens.Any(t => dname.Contains(t)))
+                        {
+                            results.Add(new FileSystemJunkResult
+                            {
+                                EntryName = Path.GetFileName(dir),
+                                Path = dir,
+                                IsDirectory = true,
+                                Confidence = ConfidenceLevel.Good,
+                                Reason = "Windows Hata Raporu arşiv klasörü (WER Report)",
+                                Selected = true
+                            });
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
         private void ScanUserAssist(ApplicationUninstallerEntry entry, List<IJunkResult> results)
         {
             try
@@ -394,7 +1198,7 @@ namespace LDUninstaller.Core.Junk
                 using var uaKey = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist");
                 if (uaKey == null) return;
 
-                var (cleanName, _, tokens) = GetMatchTokens(entry);
+                var (_, _, tokens) = GetMatchTokens(entry);
 
                 foreach (var sub in uaKey.GetSubKeyNames())
                 {
@@ -422,7 +1226,7 @@ namespace LDUninstaller.Core.Junk
             catch { }
         }
 
-        private void ScanShortcuts(ApplicationUninstallerEntry entry, List<IJunkResult> results)
+        private void ScanShortcutsAndRecent(ApplicationUninstallerEntry entry, List<IJunkResult> results)
         {
             var shortcutDirs = new List<string>
             {
@@ -431,7 +1235,10 @@ namespace LDUninstaller.Core.Junk
                 Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu),
                 Environment.GetFolderPath(Environment.SpecialFolder.Programs),
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms)
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
+                Environment.GetFolderPath(Environment.SpecialFolder.Startup),
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonStartup),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "Windows", "Recent")
             };
 
             var (_, _, tokens) = GetMatchTokens(entry);
@@ -455,7 +1262,7 @@ namespace LDUninstaller.Core.Junk
                                 Path = file,
                                 IsDirectory = false,
                                 Confidence = ConfidenceLevel.VeryGood,
-                                Reason = "Masaüstü veya Başlat menüsü kısayol kalıntısı",
+                                Reason = "Masaüstü, Başlat menüsü veya Son Belgeler kısayol kalıntısı",
                                 Selected = true
                             });
                         }
@@ -465,23 +1272,61 @@ namespace LDUninstaller.Core.Junk
             }
         }
 
-        public static int CleanJunk(IEnumerable<IJunkResult> items, string backupDir)
+        private void ScanMsiOrphanedProducts(ApplicationUninstallerEntry entry, List<IJunkResult> results)
         {
-            int cleanedCount = 0;
-            Directory.CreateDirectory(backupDir);
+            var (cleanName, _, _) = GetMatchTokens(entry);
+            if (cleanName.Length < 3) return;
 
-            foreach (var item in items.Where(x => x.Selected && x.Confidence > ConfidenceLevel.Bad))
+            try
             {
-                try
+                // HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products
+                using var productsKey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products");
+                if (productsKey != null)
                 {
-                    if (item.Delete(backupDir))
+                    foreach (var prodCode in productsKey.GetSubKeyNames())
                     {
-                        cleanedCount++;
+                        try
+                        {
+                            using var installProps = productsKey.OpenSubKey($@"{prodCode}\InstallProperties");
+                            if (installProps != null)
+                            {
+                                string? dispName = installProps.GetValue("DisplayName")?.ToString();
+                                string? installLoc = installProps.GetValue("InstallLocation")?.ToString();
+
+                                bool match = false;
+                                if (!string.IsNullOrEmpty(dispName) && dispName.Equals(cleanName, StringComparison.OrdinalIgnoreCase))
+                                    match = true;
+                                else if (!string.IsNullOrWhiteSpace(entry.InstallLocation) && !string.IsNullOrEmpty(installLoc) &&
+                                         Path.GetFullPath(installLoc).TrimEnd('\\').Equals(Path.GetFullPath(entry.InstallLocation).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                                    match = true;
+
+                                if (match)
+                                {
+                                    results.Add(new RegistryJunkResult
+                                    {
+                                        EntryName = dispName ?? prodCode,
+                                        Path = $@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\{prodCode}",
+                                        Confidence = ConfidenceLevel.VeryGood,
+                                        Reason = "Windows Installer (MSI) ürün kayıt kalıntısı",
+                                        Selected = true
+                                    });
+
+                                    results.Add(new RegistryJunkResult
+                                    {
+                                        EntryName = prodCode,
+                                        Path = $@"HKCR\Installer\Products\{prodCode}",
+                                        Confidence = ConfidenceLevel.VeryGood,
+                                        Reason = "Windows Installer (MSI) ürün referans kalıntısı",
+                                        Selected = true
+                                    });
+                                }
+                            }
+                        }
+                        catch { }
                     }
                 }
-                catch { }
             }
-            return cleanedCount;
+            catch { }
         }
 
         private void ScanRegistryUninstallKey(ApplicationUninstallerEntry entry, List<IJunkResult> results)
@@ -521,6 +1366,25 @@ namespace LDUninstaller.Core.Junk
                 }
             }
             catch { }
+        }
+
+        public static int CleanJunk(IEnumerable<IJunkResult> items, string backupDir)
+        {
+            int cleanedCount = 0;
+            Directory.CreateDirectory(backupDir);
+
+            foreach (var item in items.Where(x => x.Selected && x.Confidence > ConfidenceLevel.Bad))
+            {
+                try
+                {
+                    if (item.Delete(backupDir))
+                    {
+                        cleanedCount++;
+                    }
+                }
+                catch { }
+            }
+            return cleanedCount;
         }
 
         public static string Rot13(string input)

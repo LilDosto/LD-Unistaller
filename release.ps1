@@ -1,6 +1,7 @@
 param(
     [ValidateSet("major", "minor", "patch", "current")]
-    [string]$Type = "current"
+    [string]$Type = "current",
+    [string]$Message = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -103,19 +104,27 @@ try { Remove-Item -Path (Join-Path $root "publish") -Recurse -Force -ErrorAction
 try { Remove-Item -Path (Join-Path $root "dist") -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 
 # 5. Sürüm ZIP Arşivini Oluştur (GitHub Releases için)
+# Eski ZIP arşivlerini temizle
+$oldZips = Get-ChildItem -Path $root -File -Filter "LD-Uninstaller-v*.zip"
+foreach ($oz in $oldZips) {
+    try { Remove-Item -Path $oz.FullName -Force -ErrorAction SilentlyContinue } catch { }
+}
+
 $zipName = "LD-Uninstaller-v$newVersion.zip"
 $zipPath = Join-Path $root $zipName
 Write-Host "Sürüm arşivi oluşturuluyor: $zipName..." -ForegroundColor Cyan
-if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path "$targetDir\*" -DestinationPath $zipPath -Force
 
 # 6. Git Değişiklikleri, Etiket (Tag) ve GitHub Senkronizasyonu
 if (Test-Path (Join-Path $root ".git")) {
     Write-Host "`nGit değişiklikleri işleniyor ve GitHub'a aktarılıyor..." -ForegroundColor Cyan
     try {
+        if ([string]::IsNullOrWhiteSpace($Message)) {
+            $Message = "Release v${newVersion}: Gelismis 20 Katmanli Derin Kalinti Temizleme Motoru"
+        }
         git add .
-        git commit -m "Release v${newVersion}: Ultra akici performans yamasi, coklu disk analizi ve otomatik kalinti temizleyici"
-        git tag -a "v$newVersion" -m "LD Uninstaller v$newVersion" -f
+        git commit -m $Message
+        git tag -a "v$newVersion" -m "LD Uninstaller v$newVersion - $Message" -f
         
         $remote = git remote get-url origin 2>$null
         if ($remote) {
