@@ -77,13 +77,19 @@ Script, kök dizindeki eski sürümleri temizler, yalnızca en güncel sürüm k
 
 ```powershell
 # Yönetici yetkili başlatıcı:
-.\LD Uninstaller v2.4.0\LDUninstaller.Launcher.exe
+.\LD Uninstaller v2.5.0\LDUninstaller.Launcher.exe
 
 # veya doğrudan arayüz:
-.\LD Uninstaller v2.4.0\LDUninstaller.UI.exe
+.\LD Uninstaller v2.5.0\LDUninstaller.UI.exe
 
 # SysAdmin ve Otomasyon için CLI aracı:
-.\LD Uninstaller v2.4.0\LDUninstaller.CLI.exe list /F=table
-.\LD Uninstaller v2.4.0\LDUninstaller.CLI.exe export software_inventory.json /F=json
-.\LD Uninstaller v2.4.0\LDUninstaller.CLI.exe debloat --list
+.\LD Uninstaller v2.5.0\LDUninstaller.CLI.exe list /F=table
+.\LD Uninstaller v2.5.0\LDUninstaller.CLI.exe export software_inventory.json /F=json
+.\LD Uninstaller v2.5.0\LDUninstaller.CLI.exe debloat --list
 ```
+
+---
+
+## 📄 Lisans
+
+Bu proje [MIT Lisansı](LICENSE) kapsamında lisanslanmıştır. Detaylar için [`LICENSE`](LICENSE) dosyasına göz atabilirsiniz.
