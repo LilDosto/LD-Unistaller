@@ -1,4 +1,4 @@
-﻿param(
+param(
     [ValidateSet("major", "minor", "patch", "current")]
     [string]$Type = "current",
     [string]$Message = ""
@@ -200,21 +200,21 @@ public class GitCredsPublisher
         $repoOwner = "LilDosto"
         $repoName = "LD-Unistaller"
 
-        # Changelog / SÃ¼rÃ¼m NotlarÄ± (Sade, temiz ve bozulmayan format)
-        $releaseNotes = @"
-## LD Uninstaller v$newVersion
+        # Changelog / Sürüm Notları (Şablon dosyasından temiz UTF-8 olarak yüklenir)
+        $templatePath = Join-Path $root "release_notes_template.md"
+        $releaseNotes = ""
+        if (Test-Path $templatePath) {
+            $releaseNotes = [System.IO.File]::ReadAllText($templatePath, [System.Text.Encoding]::UTF8)
+            $releaseNotes = $releaseNotes.Replace("{VERSION}", $newVersion)
+        } else {
+            $releaseNotes = "LD Uninstaller v$newVersion güncellemesi."
+        }
 
-### Yenilikler ve GeliÅŸtirmeler
-- **20 KatmanlÄ± Derin KalÄ±ntÄ± Temizleme:** KaldÄ±rma iÅŸlemi sonrasÄ±nda sistemde kalan servisler, zamanlanmÄ±ÅŸ gÃ¶revler, kayÄ±t defteri anahtarlarÄ± ve dosya kalÄ±ntÄ±larÄ± eksiksiz taranÄ±r ve temizlenir.
-- **Ã‡oklu Disk DesteÄŸi:** Sistemdeki tÃ¼m diskler (C:, D: vb.) iÃ§in sekme yÃ¶netimi ve gÃ¶rsel disk alanÄ± analizi.
-- **Ultra AkÄ±cÄ± ArayÃ¼z:** PÃ¼rÃ¼zsÃ¼z kaydÄ±rma, gecikmesiz anlÄ±k arama ve modern koyu tema.
-- **Tek TuÅŸla KaldÄ±rma:** SadeleÅŸtirilmiÅŸ tek 'KaldÄ±r' butonu ve otomatik arka plan kuyruk yÃ¶netimi.
-- **SadeleÅŸtirilmiÅŸ SÃ¼rÃ¼m Ä°simlendirmesi:** TÃ¼m arayÃ¼z ve dokÃ¼mantasyon sadeleÅŸtirildi.
-"@
+        $releaseTitle = "🧹 LDUninstaller-v$newVersion — Derin Kalıntı Temizleme ve Çoklu Disk Güncellemesi"
 
         $releasePayload = @{
             tag_name = "v$newVersion"
-            name = "LD Uninstaller v$newVersion"
+            name = $releaseTitle
             body = $releaseNotes
             draft = $false
             prerelease = $false
