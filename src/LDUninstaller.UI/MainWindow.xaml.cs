@@ -35,6 +35,11 @@ namespace LDUninstaller.UI
         {
             TraceLog("1. MainWindow ctor");
             InitializeComponent();
+
+            var ver = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            if (ver != null && txtAppVersion != null)
+                txtAppVersion.Text = $"v{ver.Major}.{ver.Minor}.{ver.Build}";
+
             Closing += (s, e) => TraceLog($"WINDOW CLOSING! Reason: {e.Cancel}");
             Closed += (s, e) => TraceLog("WINDOW CLOSED!");
             Loaded += MainWindow_Loaded;

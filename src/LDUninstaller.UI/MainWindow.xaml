@@ -38,7 +38,7 @@
                     </Border>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="LD Uninstaller" FontSize="15" FontWeight="Bold" Foreground="White" />
-                        <TextBlock Text="v2.0 Pro Edition" FontSize="11" Foreground="#60A5FA" />
+                        <TextBlock x:Name="txtAppVersion" Text="v2.4.0" FontSize="11" Foreground="#60A5FA" />
                     </StackPanel>
                 </StackPanel>
 
