@@ -55,7 +55,7 @@ namespace LDUninstaller.Core.Discovery
             }
 
             OnProgress?.Invoke("Sonuçlar birleştiriliyor ve tekilleştiriliyor...", 80);
-            var merged = MergeResults(allEntries);
+            var merged = await Task.Run(() => MergeResults(allEntries));
 
             OnProgress?.Invoke("Tarama tamamlandı.", 100);
             return merged;
@@ -68,30 +68,38 @@ namespace LDUninstaller.Core.Discovery
             var pathMap = new Dictionary<string, ApplicationUninstallerEntry>(StringComparer.OrdinalIgnoreCase);
             var nameMap = new Dictionary<string, ApplicationUninstallerEntry>(StringComparer.OrdinalIgnoreCase);
 
+            // OPTIMIZATION: Prefix bucket to replace O(N^2) inner scan with O(1) bucket lookup
+            // Pre-caches CleanName and Publisher to eliminate redundant Regex.Replace / Sift4.NormalizeName calls.
+            var prefixBuckets = new Dictionary<string, List<(ApplicationUninstallerEntry Entry, string CleanName, string Publisher)>>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var candidate in entries)
             {
                 if (string.IsNullOrWhiteSpace(candidate.DisplayName))
                     continue;
 
-                // 1. Fast GUID match
+                // 1. Fast GUID match O(1)
                 if (candidate.BundleProviderKey != Guid.Empty && guidMap.TryGetValue(candidate.BundleProviderKey, out var matchGuid))
                 {
                     Enrich(matchGuid, candidate);
                     continue;
                 }
 
-                // 2. Fast InstallLocation match
+                // 2. Fast InstallLocation match O(1)
                 if (!string.IsNullOrWhiteSpace(candidate.InstallLocation))
                 {
-                    string normPath = Path.GetFullPath(candidate.InstallLocation).TrimEnd('\\');
-                    if (pathMap.TryGetValue(normPath, out var matchPath))
+                    try
                     {
-                        Enrich(matchPath, candidate);
-                        continue;
+                        string normPath = Path.GetFullPath(candidate.InstallLocation).TrimEnd('\\');
+                        if (pathMap.TryGetValue(normPath, out var matchPath))
+                        {
+                            Enrich(matchPath, candidate);
+                            continue;
+                        }
                     }
+                    catch { }
                 }
 
-                // 3. Fast Exact Name match
+                // 3. Fast Exact Normalized Name match O(1)
                 string cleanName = Sift4.NormalizeName(candidate.DisplayName);
                 if (nameMap.TryGetValue(cleanName, out var matchName))
                 {
@@ -99,31 +107,27 @@ namespace LDUninstaller.Core.Discovery
                     continue;
                 }
 
-                // 4. Sift4 fuzzy match on candidates sharing the same starting word
-                string firstWord = cleanName.Split(' ')[0];
+                // 4. Sift4 Fuzzy match using Prefix Bucket Indexing (Reduces O(N^2) to O(k))
+                string firstWord = cleanName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
                 ApplicationUninstallerEntry? existingFuzzy = null;
 
-                if (firstWord.Length >= 3)
+                if (firstWord.Length >= 3 && prefixBuckets.TryGetValue(firstWord, out var bucketList))
                 {
-                    for (int i = 0; i < merged.Count; i++)
+                    for (int i = 0; i < bucketList.Count; i++)
                     {
-                        var x = merged[i];
-                        string xClean = Sift4.NormalizeName(x.DisplayName);
-                        if (!xClean.StartsWith(firstWord, StringComparison.OrdinalIgnoreCase))
-                            continue;
-
-                        double simName = Sift4.GetSimilarity(xClean, cleanName);
+                        var target = bucketList[i];
+                        double simName = Sift4.GetSimilarity(target.CleanName, cleanName);
                         if (simName > 0.88)
                         {
-                            if (string.IsNullOrWhiteSpace(x.Publisher) || string.IsNullOrWhiteSpace(candidate.Publisher))
+                            if (string.IsNullOrWhiteSpace(target.Publisher) || string.IsNullOrWhiteSpace(candidate.Publisher))
                             {
-                                existingFuzzy = x;
+                                existingFuzzy = target.Entry;
                                 break;
                             }
-                            double simPub = Sift4.GetSimilarity(x.Publisher, candidate.Publisher);
+                            double simPub = Sift4.GetSimilarity(target.Publisher, candidate.Publisher);
                             if (simPub > 0.70)
                             {
-                                existingFuzzy = x;
+                                existingFuzzy = target.Entry;
                                 break;
                             }
                         }
@@ -136,6 +140,7 @@ namespace LDUninstaller.Core.Discovery
                     continue;
                 }
 
+                // New unique entry accepted
                 merged.Add(candidate);
 
                 if (candidate.BundleProviderKey != Guid.Empty)
@@ -147,7 +152,20 @@ namespace LDUninstaller.Core.Discovery
                 }
 
                 if (!string.IsNullOrWhiteSpace(cleanName))
+                {
                     nameMap[cleanName] = candidate;
+
+                    // Add to prefix bucket
+                    if (firstWord.Length >= 3)
+                    {
+                        if (!prefixBuckets.TryGetValue(firstWord, out var bList))
+                        {
+                            bList = new List<(ApplicationUninstallerEntry, string, string)>(4);
+                            prefixBuckets[firstWord] = bList;
+                        }
+                        bList.Add((candidate, cleanName, candidate.Publisher ?? ""));
+                    }
+                }
             }
 
             return merged.OrderBy(x => x.DisplayName).ToList();

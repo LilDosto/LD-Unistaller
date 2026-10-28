@@ -13,7 +13,19 @@ namespace LDUninstaller.UI.Controls
 {
     public class WpfSquarifiedTreeMap : FrameworkElement
     {
+        private class RenderableBlock
+        {
+            public TreeMapItem<ApplicationUninstallerEntry> Item { get; set; } = null!;
+            public Rect Rect { get; set; }
+            public Brush Brush { get; set; } = null!;
+            public FormattedText? TitleText { get; set; }
+            public Point TitlePos { get; set; }
+            public FormattedText? SubText { get; set; }
+            public Point SubPos { get; set; }
+        }
+
         private List<TreeMapItem<ApplicationUninstallerEntry>> _items = new();
+        private List<RenderableBlock> _renderBlocks = new();
         private TreeMapItem<ApplicationUninstallerEntry>? _hoveredItem;
         public event Action<ApplicationUninstallerEntry>? OnItemSelected;
 
@@ -88,11 +100,87 @@ namespace LDUninstaller.UI.Controls
             InvalidateVisual();
         }
 
+        // ZERO-ALLOCATION RENDER PIPELINE:
+        // Layout and FormattedText objects are pre-generated during size/data change.
+        // OnRender performs 0 allocations, eliminating GC pauses during mouse hover.
         private void Recalculate()
         {
-            if (ActualWidth <= 10 || ActualHeight <= 10 || _items.Count == 0) return;
+            if (ActualWidth <= 10 || ActualHeight <= 10 || _items.Count == 0)
+            {
+                _renderBlocks.Clear();
+                return;
+            }
+
             var bounds = new System.Drawing.RectangleF(2, 2, (float)ActualWidth - 4, (float)ActualHeight - 4);
             _items = SquarifiedTreeMap.CalculateLayout(_items, bounds);
+
+            var newBlocks = new List<RenderableBlock>(_items.Count);
+            double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+            int index = 0;
+
+            foreach (var item in _items)
+            {
+                var b = item.Bounds;
+                if (b.Width < 2 || b.Height < 2) continue;
+
+                var block = new RenderableBlock
+                {
+                    Item = item,
+                    Rect = new Rect(b.X, b.Y, b.Width, b.Height),
+                    Brush = Palette[index % Palette.Length]
+                };
+                index++;
+
+                if (b.Width > 55 && b.Height > 28)
+                {
+                    string title = item.Value?.DisplayName ?? "Uygulama";
+                    string sub = item.Value?.EstimatedSize.ToString() ?? "";
+                    double maxW = Math.Max(10, b.Width - 12);
+
+                    try
+                    {
+                        var ft = new FormattedText(
+                            title,
+                            CultureInfo.CurrentCulture,
+                            FlowDirection.LeftToRight,
+                            TitleTypeface,
+                            11,
+                            Brushes.White,
+                            dpi)
+                        {
+                            MaxTextWidth = maxW,
+                            MaxTextHeight = 16,
+                            Trimming = TextTrimming.CharacterEllipsis
+                        };
+                        block.TitleText = ft;
+                        block.TitlePos = new Point(b.X + 6, b.Y + 5);
+
+                        if (b.Height > 44)
+                        {
+                            var ftSub = new FormattedText(
+                                sub,
+                                CultureInfo.CurrentCulture,
+                                FlowDirection.LeftToRight,
+                                SubTypeface,
+                                9.5,
+                                SubTextBrush,
+                                dpi)
+                            {
+                                MaxTextWidth = maxW,
+                                MaxTextHeight = 14,
+                                Trimming = TextTrimming.CharacterEllipsis
+                            };
+                            block.SubText = ftSub;
+                            block.SubPos = new Point(b.X + 6, b.Y + 22);
+                        }
+                    }
+                    catch { }
+                }
+
+                newBlocks.Add(block);
+            }
+
+            _renderBlocks = newBlocks;
         }
 
         private void WpfSquarifiedTreeMap_MouseMove(object sender, MouseEventArgs e)
@@ -124,10 +212,10 @@ namespace LDUninstaller.UI.Controls
         {
             base.OnRender(dc);
 
-            // Draw dark backdrop with frozen brush
+            // Draw dark backdrop
             dc.DrawRectangle(BackdropBrush, null, new Rect(0, 0, ActualWidth, ActualHeight));
 
-            if (_items.Count == 0)
+            if (_renderBlocks.Count == 0)
             {
                 var ftEmpty = new FormattedText(
                     "Görselleştirilecek disk verisi yok veya boyutlar hesaplanıyor...",
@@ -141,66 +229,20 @@ namespace LDUninstaller.UI.Controls
                 return;
             }
 
-            int index = 0;
-            double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-
-            foreach (var item in _items)
+            // Zero allocations during render
+            foreach (var block in _renderBlocks)
             {
-                var b = item.Bounds;
-                if (b.Width < 2 || b.Height < 2) continue;
+                bool isHovered = block.Item == _hoveredItem;
+                dc.DrawRoundedRectangle(block.Brush, isHovered ? HoverPen : BorderPen, block.Rect, 4, 4);
 
-                var rect = new Rect(b.X, b.Y, b.Width, b.Height);
-                var brush = Palette[index % Palette.Length];
-                index++;
-
-                bool isHovered = item == _hoveredItem;
-
-                dc.DrawRoundedRectangle(brush, isHovered ? HoverPen : BorderPen, rect, 4, 4);
-
-                // Text labels
-                if (b.Width > 55 && b.Height > 28)
+                if (block.TitleText != null)
                 {
-                    string title = item.Value?.DisplayName ?? "Uygulama";
-                    string sub = item.Value?.EstimatedSize.ToString() ?? "";
-                    double maxW = Math.Max(10, b.Width - 12);
+                    dc.DrawText(block.TitleText, block.TitlePos);
+                }
 
-                    try
-                    {
-                        var ft = new FormattedText(
-                            title,
-                            CultureInfo.CurrentCulture,
-                            FlowDirection.LeftToRight,
-                            TitleTypeface,
-                            11,
-                            Brushes.White,
-                            dpi)
-                        {
-                            MaxTextWidth = maxW,
-                            MaxTextHeight = 16,
-                            Trimming = TextTrimming.CharacterEllipsis
-                        };
-
-                        dc.DrawText(ft, new Point(b.X + 6, b.Y + 5));
-
-                        if (b.Height > 44)
-                        {
-                            var ftSub = new FormattedText(
-                                sub,
-                                CultureInfo.CurrentCulture,
-                                FlowDirection.LeftToRight,
-                                SubTypeface,
-                                9.5,
-                                SubTextBrush,
-                                dpi)
-                            {
-                                MaxTextWidth = maxW,
-                                MaxTextHeight = 14,
-                                Trimming = TextTrimming.CharacterEllipsis
-                            };
-                            dc.DrawText(ftSub, new Point(b.X + 6, b.Y + 22));
-                        }
-                    }
-                    catch { }
+                if (block.SubText != null)
+                {
+                    dc.DrawText(block.SubText, block.SubPos);
                 }
             }
         }

@@ -86,12 +86,15 @@ namespace LDUninstaller.Core.Algorithms
             @"\b(corp|corporation|inc|incorporated|ltd|limited|llc|gmbh|co|software|technologies|systems)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        private static readonly Regex NonWordRegex = new(@"[^\w\s]", RegexOptions.Compiled);
+        private static readonly Regex MultiSpaceRegex = new(@"\s+", RegexOptions.Compiled);
+
         public static string NormalizeName(string input)
         {
             if (string.IsNullOrWhiteSpace(input)) return string.Empty;
             string s = CompanySuffixesRegex.Replace(input, "");
-            s = Regex.Replace(s, @"[^\w\s]", " ");
-            s = Regex.Replace(s, @"\s+", " ").Trim();
+            s = NonWordRegex.Replace(s, " ");
+            s = MultiSpaceRegex.Replace(s, " ").Trim();
             return s;
         }
     }

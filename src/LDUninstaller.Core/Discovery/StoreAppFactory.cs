@@ -30,7 +30,18 @@ namespace LDUninstaller.Core.Discovery
                 if (process == null) return results;
 
                 string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(7000);
+
+                // FAULT TOLERANCE & PROCESS LIFECYCLE:
+                // Ensure process is never abandoned as a zombie task on timeout.
+                if (!process.WaitForExit(7000))
+                {
+                    try
+                    {
+                        process.Kill(true); // Kill process tree immediately
+                    }
+                    catch { }
+                    return results;
+                }
 
                 using var reader = new StringReader(output);
                 string? line;
@@ -107,7 +118,7 @@ namespace LDUninstaller.Core.Discovery
                 }
                 else if (c == ',' && !inQuotes)
                 {
-                    result.Add(current.ToString());
+                    result.Add(current.ToString().Trim('\"', ' '));
                     current.Clear();
                 }
                 else
@@ -115,7 +126,8 @@ namespace LDUninstaller.Core.Discovery
                     current.Append(c);
                 }
             }
-            result.Add(current.ToString());
+            result.Add(current.ToString().Trim('\"', ' '));
+
             return result;
         }
     }

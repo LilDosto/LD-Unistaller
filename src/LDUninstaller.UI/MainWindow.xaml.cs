@@ -200,8 +200,8 @@ namespace LDUninstaller.UI
 
                 if (!string.IsNullOrEmpty(query))
                 {
-                    bool matchName = app.DisplayName.ToLowerInvariant().Contains(query);
-                    bool matchPub = app.Publisher.ToLowerInvariant().Contains(query);
+                    bool matchName = app.DisplayName != null && app.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase);
+                    bool matchPub = app.Publisher != null && app.Publisher.Contains(query, StringComparison.OrdinalIgnoreCase);
                     if (!matchName && !matchPub) return false;
                 }
 

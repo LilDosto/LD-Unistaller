@@ -294,22 +294,26 @@ namespace LDUninstaller.Core.Bulk
             try
             {
                 string norm = Path.GetFullPath(entry.InstallLocation).TrimEnd('\\');
+                int currentPid = Process.GetCurrentProcess().Id;
                 var procs = Process.GetProcesses();
                 foreach (var p in procs)
                 {
-                    try
+                    using (p)
                     {
-                        if (p.Id == Process.GetCurrentProcess().Id) continue;
-                        string? mainModule = p.MainModule?.FileName;
-                        if (!string.IsNullOrWhiteSpace(mainModule))
+                        try
                         {
-                            if (Path.GetFullPath(mainModule).StartsWith(norm, StringComparison.OrdinalIgnoreCase))
+                            if (p.Id == currentPid) continue;
+                            string? mainModule = p.MainModule?.FileName;
+                            if (!string.IsNullOrWhiteSpace(mainModule))
                             {
-                                Win32.GentleKillProcess(p, 2000);
+                                if (Path.GetFullPath(mainModule).StartsWith(norm, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    Win32.GentleKillProcess(p, 2000);
+                                }
                             }
                         }
+                        catch { }
                     }
-                    catch { }
                 }
             }
             catch { }
@@ -326,20 +330,23 @@ namespace LDUninstaller.Core.Bulk
                 var services = ServiceController.GetServices();
                 foreach (var sc in services)
                 {
-                    try
+                    using (sc)
                     {
-                        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{sc.ServiceName}");
-                        string? path = key?.GetValue("ImagePath")?.ToString();
-                        if (!string.IsNullOrWhiteSpace(path) && path.StartsWith(norm, StringComparison.OrdinalIgnoreCase))
+                        try
                         {
-                            if (sc.Status == ServiceControllerStatus.Running)
+                            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{sc.ServiceName}");
+                            string? path = key?.GetValue("ImagePath")?.ToString();
+                            if (!string.IsNullOrWhiteSpace(path) && path.StartsWith(norm, StringComparison.OrdinalIgnoreCase))
                             {
-                                sc.Stop();
-                                sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(3));
+                                if (sc.Status == ServiceControllerStatus.Running)
+                                {
+                                    sc.Stop();
+                                    sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(3));
+                                }
                             }
                         }
+                        catch { }
                     }
-                    catch { }
                 }
             }
             catch { }
@@ -350,7 +357,10 @@ namespace LDUninstaller.Core.Bulk
             while (!token.IsCancellationRequested)
             {
                 var msiProcs = Process.GetProcessesByName("msiexec");
-                if (msiProcs.Length <= 1)
+                int count = msiProcs.Length;
+                foreach (var p in msiProcs) p.Dispose();
+
+                if (count <= 1)
                     break;
                 await Task.Delay(1000, token);
             }

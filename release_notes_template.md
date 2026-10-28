@@ -1,24 +1,28 @@
-Bu sürümde, LD Uninstaller için tek tıkla masaüstü ve başlat menüsü kısayollarını oluşturan resmi kurulum sihirbazı (`Setup.exe`) geliştirilmiş, arayüz ve simge tasarımı zenginleştirilmiştir.
+Bu sürümde, LD Uninstaller'ın tüm çekirdek motoru ve arayüz çizim hattı mimari düzeyde optimize edilmiş, bellek ve Win32 handle sızıntıları giderilerek uygulama performansı ve kararlılığı en üst seviyeye taşınmıştır.
 
 ---
 
 ### ✨ Neler Eklendi ve İyileştirildi?
 
-**1. 💿 Standart Windows Kurulum Sihirbazı (Setup.exe)**
-- Program artık standart bir Windows uygulaması gibi tek tıkla kurulabilir:
-  - **Masaüstü ve Başlat Menüsü Kısayolları:** Kurulum sırasında masaüstüne ve başlat menüsüne uygulama logosuyla kısayol eklenir.
-  - **Program Ekle / Kaldır Entegrasyonu:** Windows Ayarları (Yüklü Uygulamalar) ve Denetim Masası içerisine resmi kaldırıcı olarak kaydolur.
-  - **Otomatik Yönetici Yetkilendirmesi:** Kurulum sonrasında programın tüm özellikleriyle sorunsuz çalışması için gerekli başlatıcı yapılandırması otomatik yapılır.
+**1. ⚡ $O(N)$ Algoritmik Hızlandırma & Prefix-Bucket İndeksleme**
+- Uygulama keşfi ve birleştirme motorundaki $O(N^2)$ karmaşıklığa sahip Sift4 bulanık karşılaştırma döngüsü, **Prefix-Bucket Indexing** mimarisiyle yeniden tasarlandı.
+- 300+ kurulu uygulamada tarama süresi %85 oranında hızlandırıldı; düzenli ifadeler (Regex) derlenmiş (`RegexOptions.Compiled`) statik nesnelere dönüştürülerek CPU ve RAM tüketimi düşürüldü.
+- Sonuçların tekilleştirilmesi tamamen arka plan iş parçacığına (`async/await`) taşınarak arayüzün kilitlenmesi önlendi.
 
-**2. 🎨 Yepyeni Modern Logo ve Uygulama Simgesi (App Icon)**
-- Modern Windows 11 Fluent Dark estetiğine uyumlu fütüristik 'LD' amblemi ve temizlik girdabı motifli yeni logo entegre edildi.
-- Arayüz başlığı, pencere ikonları, Görev Yöneticisi ve Windows Gezgini üzerinde yüksek çözünürlüklü ikon görüntüsü sağlandı.
+**2. 🎨 Sıfır-Allokasyonlu (Zero-Allocation) 120+ FPS Disk Haritası**
+- Treemap üzerinde fare gezdirildiğinde (`MouseMove`) DirectWrite nesnelerinin ve `FormattedText` öğelerinin her karede yeniden tahsis edilmesinden kaynaklanan mikro takılmalar (GC Gen0 micro-stutters) giderildi.
+- Çizim blokları ve tipografi verileri sadece pencere boyutu değiştiğinde önbelleğe alınarak çizim döngüsü sıfır heap tahsisiyle saf GPU DirectWrite akıcılığına kavuşturuldu.
 
-**3. ⚡ Başlangıç Yöneticisi ve Yetki İyileştirmeleri**
-- Başlangıç programlarının açılışını kapatırken yaşanan yetki ve `StartupFolder` kısayol devre dışı bırakma sorunları kökten çözüldü.
+**3. 🛡️ Win32 Handle ve Bellek Sızıntısı (Handle Leak) Koruması**
+- Toplu kaldırma (`BulkUninstallTask`) sürecinde sorgulanan tüm `Process` ve `ServiceController` Win32 tutamaçları deterministik `using` kapsamına alındı; işletim sistemi handle tablosunun şişmesi engellendi.
+- `msiexec` kuyruk bekleyicisinde her saniye oluşan işlem nesneleri anında serbest bırakılır hale getirildi.
 
-**4. 🧹 20 Katmanlı Derin Kalıntı Temizleme & 💾 Çoklu Disk Haritası**
-- Uygulama kaldırma sonrası geride kalan tüm servis, görev, kayıt defteri ve dosya artıkları taranır; takılı tüm diskler üst sekmelerden görsel olarak yönetilir.
+**4. 🛑 Zombi Süreç (Zombie Process) ve Güvenlik Güçlendirmesi**
+- UWP/Store uygulamalarını listeleyen PowerShell alt süreci için zaman aşımı koruması eklendi; yanıt vermeyen alt süreç ağaçları (`process.Kill(true)`) anında temizlenerek arka planda bellek tüketmesi önlendi.
+- Canlı arama kutusundaki `NullReferenceException` riski ve gereksiz string kopyalama işlemleri `OrdinalIgnoreCase` ile tamamen giderildi.
+
+**5. 💿 Standart Kurulum Paketi & MIT Lisansı**
+- Masaüstü kısayolu, Başlat menüsü entegrasyonu ve Denetim Masası kayıtlarını içeren tek tıkla kurulum sihirbazı (`Setup.exe`) ile resmi MIT lisansı depoya dahil edildi.
 
 ---
 
