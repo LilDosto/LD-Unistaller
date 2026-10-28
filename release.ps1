@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("major", "minor", "patch", "current")]
     [string]$Type = "current",
     [string]$Message = ""
@@ -12,7 +12,7 @@ $versionFile = Join-Path $root "version.json"
 $propsFile = Join-Path $root "Directory.Build.props"
 
 if (-not (Test-Path $versionFile)) {
-    @{ major = 2; minor = 4; patch = 0; version = "2.4.0" } | ConvertTo-Json | Set-Content $versionFile
+    @{ major = 2; minor = 5; patch = 0; version = "2.5.0" } | ConvertTo-Json | Set-Content $versionFile
 }
 
 $vData = Get-Content $versionFile -Raw | ConvertFrom-Json
@@ -56,6 +56,7 @@ $propsContent = @"
     <Product>LD Uninstaller</Product>
     <Company>LD Software</Company>
     <Authors>LD Software</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 </Project>
 "@
@@ -73,6 +74,10 @@ foreach ($old in $oldFolders) {
         Remove-Item -Path $old.FullName -Recurse -Force -ErrorAction SilentlyContinue
     } catch { }
 }
+
+# Eski kurulum exe ve zip dosyalarini temizle
+Get-ChildItem -Path $root -File -Filter "LD-Uninstaller-Setup-v*.exe" | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $root -File -Filter "LD-Uninstaller-v*.zip" | Remove-Item -Force -ErrorAction SilentlyContinue
 
 $targetFolderName = "LD Uninstaller v$newVersion"
 $targetDir = Join-Path $root $targetFolderName
@@ -103,15 +108,35 @@ Get-ChildItem -Path $targetDir -Filter "*.pdb" | Remove-Item -Force -ErrorAction
 try { Remove-Item -Path (Join-Path $root "publish") -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 try { Remove-Item -Path (Join-Path $root "dist") -Recurse -Force -ErrorAction SilentlyContinue } catch { }
 
-# 5. Surum ZIP Arsivini Olustur
-$oldZips = Get-ChildItem -Path $root -File -Filter "LD-Uninstaller-v*.zip"
-foreach ($oz in $oldZips) {
-    try { Remove-Item -Path $oz.FullName -Force -ErrorAction SilentlyContinue } catch { }
+# 5. Windows Kurulum Sihirbazi (Setup.exe) ve ZIP Arsivini Olustur
+Copy-Item (Join-Path $root "app.ico") (Join-Path $targetDir "app.ico") -Force
+
+# Inno Setup ile Setup.exe derle
+$isccCandidates = @(
+    "C:\Users\lildosto\AppData\Local\Programs\Inno Setup 6\ISCC.exe",
+    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+    "C:\Program Files\Inno Setup 6\ISCC.exe"
+)
+$isccPath = $null
+foreach ($cand in $isccCandidates) {
+    if (Test-Path $cand) { $isccPath = $cand; break }
 }
 
+$setupName = "LD-Uninstaller-Setup-v$newVersion.exe"
+$setupPath = Join-Path $root $setupName
+
+if ($isccPath -and (Test-Path (Join-Path $root "installer.iss"))) {
+    Write-Host "Windows Kurulum Sihirbazi derleniyor: $setupName..." -ForegroundColor Cyan
+    & $isccPath /Q "/DMyAppVersion=$newVersion" "/DSourceDir=$targetDir" (Join-Path $root "installer.iss")
+    if (Test-Path $setupPath) {
+        Write-Host "Kurulum dosyasi basariyla olusturuldu: $setupName" -ForegroundColor Green
+    }
+}
+
+# Portable ZIP arsivi
 $zipName = "LD-Uninstaller-v$newVersion.zip"
 $zipPath = Join-Path $root $zipName
-Write-Host "Surum arsivi olusturuluyor: $zipName..." -ForegroundColor Cyan
+Write-Host "Surum zip arsivi olusturuluyor: $zipName..." -ForegroundColor Cyan
 Compress-Archive -Path "$targetDir\*" -DestinationPath $zipPath -Force
 
 # 6. Git Islemleri ve GitHub Push
@@ -119,7 +144,7 @@ if (Test-Path (Join-Path $root ".git")) {
     Write-Host "`nGit degisiklikleri isleniyor ve GitHub'a aktariliyor..." -ForegroundColor Cyan
     try {
         if ([string]::IsNullOrWhiteSpace($Message)) {
-            $Message = "Release v${newVersion}: Yeni Logo ve Baslangic Yoneticisi Guncellemesi"
+            $Message = "Release v${newVersion}: Standart Windows Kurulum Sihirbazi ve Otomasyon"
         }
         git add .
         git commit -m $Message
@@ -144,7 +169,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-public class GitCredsEngine
+public class GitCredsEngine2
 {
     [DllImport("Advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     public static extern bool CredRead(string target, int type, int reservedFlag, out IntPtr credentialPtr);
@@ -180,11 +205,11 @@ public class GitCredsEngine
     }
 }
 "@
-    if (-not ([System.Management.Automation.PSTypeName]'GitCredsEngine').Type) {
+    if (-not ([System.Management.Automation.PSTypeName]'GitCredsEngine2').Type) {
         Add-Type -TypeDefinition $code -Language CSharp
     }
     
-    $token = [GitCredsEngine]::GetToken()
+    $token = [GitCredsEngine2]::GetToken()
     if ($env:GITHUB_TOKEN) { $token = $env:GITHUB_TOKEN }
     if ($env:GH_TOKEN) { $token = $env:GH_TOKEN }
 
@@ -210,7 +235,7 @@ public class GitCredsEngine
             $releaseNotes = "LD Uninstaller v$newVersion guncellemesi."
         }
 
-        $releaseTitle = if (![string]::IsNullOrWhiteSpace($Message)) { $Message } else { "LDUninstaller-v$newVersion - Guncelleme" }
+        $releaseTitle = if (![string]::IsNullOrWhiteSpace($Message)) { $Message } else { "LDUninstaller-v$newVersion - Setup" }
 
         $releasePayload = @{
             tag_name = "v$newVersion"
@@ -238,13 +263,15 @@ public class GitCredsEngine
             $ghRelease = Invoke-RestMethod -Uri $postUrl -Headers $apiHeaders -Method Post -Body $jsonBytes -ContentType "application/json; charset=utf-8"
         }
 
-        # ZIP dosyasini release asset olarak yukle
-        if ($ghRelease -and (Test-Path $zipPath)) {
-            Write-Host "Surum paketi ($zipName) release sayfasina yukleniyor..." -ForegroundColor Cyan
+        # Dosyalari release asset olarak yukle (Setup.exe ve zip)
+        $filesToUpload = @($setupPath, $zipPath) | Where-Object { Test-Path $_ }
+        foreach ($fPath in $filesToUpload) {
+            $fName = Split-Path $fPath -Leaf
+            Write-Host "Release varligi yukleniyor: $fName..." -ForegroundColor Cyan
 
             if ($ghRelease.assets) {
                 foreach ($asset in $ghRelease.assets) {
-                    if ($asset.name -eq $zipName) {
+                    if ($asset.name -eq $fName) {
                         try {
                             Invoke-RestMethod -Uri "https://api.github.com/repos/$repoOwner/$repoName/releases/assets/$($asset.id)" -Headers $apiHeaders -Method Delete | Out-Null
                         } catch { }
@@ -252,15 +279,16 @@ public class GitCredsEngine
                 }
             }
 
-            $uploadUri = $ghRelease.upload_url -replace '\{\?name,label\}', "?name=$zipName"
+            $uploadUri = $ghRelease.upload_url -replace '\{\?name,label\}', "?name=$fName"
+            $contentType = if ($fName.EndsWith(".exe")) { "application/vnd.microsoft.portable-executable" } else { "application/zip" }
             $uploadHeaders = @{
                 "Authorization" = "Bearer $token"
                 "User-Agent" = "LDUninstaller-ReleaseScript"
                 "Accept" = "application/vnd.github+json"
             }
-            $zipBytes = [System.IO.File]::ReadAllBytes($zipPath)
-            $uploadResult = Invoke-RestMethod -Uri $uploadUri -Headers $uploadHeaders -Method Post -Body $zipBytes -ContentType "application/zip"
-            Write-Host "Asset basariyla yuklendi: $($uploadResult.browser_download_url)" -ForegroundColor Green
+            $fileBytes = [System.IO.File]::ReadAllBytes($fPath)
+            $uploadResult = Invoke-RestMethod -Uri $uploadUri -Headers $uploadHeaders -Method Post -Body $fileBytes -ContentType $contentType
+            Write-Host "Yuklendi: $($uploadResult.browser_download_url)" -ForegroundColor Green
         }
 
         Write-Host "`nGitHub Release yayinda:" -ForegroundColor Yellow
@@ -273,6 +301,8 @@ public class GitCredsEngine
 Write-Host "`n[+] Basariyla Tamamlandi!" -ForegroundColor Green
 Write-Host "Ana dizinde olusturulan son guncel surum klasoru:" -ForegroundColor Yellow
 Write-Host " -> $targetFolderName" -ForegroundColor White
+Write-Host "Standart Kurulum Paketi (Setup.exe):" -ForegroundColor Cyan
+Write-Host " -> $setupName" -ForegroundColor White
 Write-Host "GitHub Release hazir paketi:" -ForegroundColor White
 Write-Host " -> $zipName" -ForegroundColor Cyan
 Write-Host "Kullanima hazir yurutulebilir dosyalar:" -ForegroundColor Gray
